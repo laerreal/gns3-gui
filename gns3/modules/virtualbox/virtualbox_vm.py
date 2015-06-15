@@ -477,7 +477,6 @@ class VirtualBoxVM(VM):
 
         :returns: port (integer)
         """
-
         return self._settings["console"]
 
     def configPage(self):

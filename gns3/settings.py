@@ -107,6 +107,20 @@ else:
         if distro == "Debian" or distro == "Ubuntu" or distro == "LinuxMint":
             DEFAULT_TELNET_CONSOLE_COMMAND = PRECONFIGURED_TELNET_CONSOLE_COMMANDS["Gnome Terminal"]
 
+# FIXME: make this work on other platforms
+if sys.platform.startswith("linux"):
+    PRECONFIGURED_SHELL_CONSOLE_COMMANDS = {
+        'Xterm': 'xterm -T "%d" -e "%s"',
+        'Gnome Terminal': 'gnome-terminal -t "%d" -e "%s"',
+        'Xfce4 Terminal': 'xfce4-terminal -T "%d" -e "%s"',
+        'ROXTerm': 'roxterm -n "%d" --tab -e "%s"',
+        'KDE Konsole': 'konsole --new-tab -p tabtitle="%d" -e "%s"',
+        'Mate Terminal': 'mate-terminal --tab -e "%s"  -t "%d"'
+    }
+    distro = platform.linux_distribution()[0]
+    if distro == "Debian" or distro == "Ubuntu" or distro == "LinuxMint" or distro == "Fedora":
+        DEFAULT_SHELL_CONSOLE_COMMAND = PRECONFIGURED_SHELL_CONSOLE_COMMANDS["Gnome Terminal"]
+
 # Pre-configured serial console commands on various OSes
 if sys.platform.startswith("win"):
     # Windows
@@ -185,6 +199,7 @@ GENERAL_SETTINGS = {
     "link_manual_mode": True,
     "telnet_console_command": DEFAULT_TELNET_CONSOLE_COMMAND,
     "serial_console_command": DEFAULT_SERIAL_CONSOLE_COMMAND,
+    "shell_console_command": DEFAULT_SHELL_CONSOLE_COMMAND,
     "auto_close_console": True,
     "bring_console_to_front": True,
     "delay_console_all": 500,
@@ -203,6 +218,7 @@ GENERAL_SETTING_TYPES = {
     "link_manual_mode": bool,
     "telnet_console_command": str,
     "serial_console_command": str,
+    "shell_console_command": str,
     "auto_close_console": bool,
     "bring_console_to_front": bool,
     "delay_console_all": int,
