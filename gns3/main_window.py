@@ -23,34 +23,33 @@ import traceback
 import sys
 import os
 import time
-import socket
 import shutil
 import json
 import glob
 import logging
-import posixpath
-import stat
 
 from pkg_resources import parse_version
 from .local_config import LocalConfig
 from .modules import MODULES
 from .modules.module_error import ModuleError
 from .modules.vpcs import VPCS
+from .modules.qemu.dialogs.qemu_image_wizard import QemuImageWizard
 from .version import __version__
 from .qt import QtGui, QtCore, QtNetwork, QtWidgets
 from .servers import Servers
+from .gns3_vm import GNS3VM
 from .node import Node
 from .ui.main_window_ui import Ui_MainWindow
 from .dialogs.about_dialog import AboutDialog
 from .dialogs.new_project_dialog import NewProjectDialog
 from .dialogs.preferences_dialog import PreferencesDialog
 from .dialogs.snapshots_dialog import SnapshotsDialog
-from .settings import GENERAL_SETTINGS, GENERAL_SETTING_TYPES, CLOUD_SETTINGS, CLOUD_SETTINGS_TYPES, ENABLE_CLOUD
+from .settings import GENERAL_SETTINGS, CLOUD_SETTINGS, ENABLE_CLOUD
 from .utils.progress_dialog import ProgressDialog
 from .utils.process_files_worker import ProcessFilesWorker
 from .utils.wait_for_connection_worker import WaitForConnectionWorker
+from .utils.wait_for_vm_worker import WaitForVMWorker
 from .utils.message_box import MessageBox
-from .utils.analytics import AnalyticsClient
 from .ports.port import Port
 from .items.node_item import NodeItem
 from .items.link_item import LinkItem
@@ -118,6 +117,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
 
         # restore the geometry and state of the main window.
         local_config = LocalConfig.instance()
+        local_config.config_changed_signal.connect(self._localConfigChangedSlot)
         gui_settings = local_config.loadSectionSettings("GUI", {"geometry": "",
                                                                 "state": ""})
         self.restoreGeometry(QtCore.QByteArray().fromBase64(gui_settings["geometry"]))
@@ -127,6 +127,12 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.uiDocksMenu.addAction(self.uiTopologySummaryDockWidget.toggleViewAction())
         self.uiDocksMenu.addAction(self.uiConsoleDockWidget.toggleViewAction())
         self.uiDocksMenu.addAction(self.uiNodesDockWidget.toggleViewAction())
+
+        # default directories for QFileDialog
+        self._import_configs_from_dir = QtCore.QStandardPaths.writableLocation(QtCore.QStandardPaths.DocumentsLocation)
+        self._export_configs_to_dir = QtCore.QStandardPaths.writableLocation(QtCore.QStandardPaths.DocumentsLocation)
+        self._screenshots_dir = QtCore.QStandardPaths.writableLocation(QtCore.QStandardPaths.PicturesLocation)
+        self._pictures_dir = QtCore.QStandardPaths.writableLocation(QtCore.QStandardPaths.PicturesLocation)
 
         # add recent file actions to the File menu
         for i in range(0, self._max_recent_files):
@@ -145,7 +151,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.setWindowIcon(QtGui.QIcon(":/images/gns3.ico"))
 
         # Network Manager (used to check for update)
-        self._network_manager = QtNetwork.QNetworkAccessManager(self)
+        self._network_manager = QtNetwork.QNetworkAccessManager()
 
         # restore the style
         self._setStyle(self._settings.get("style"))
@@ -165,19 +171,6 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         """
 
         local_config = LocalConfig.instance()
-
-        # restore the general settings from QSettings (for backward compatibility)
-        legacy_settings = {}
-        settings = QtCore.QSettings()
-        settings.beginGroup(self.__class__.__name__)
-        for name in GENERAL_SETTINGS.keys():
-            if settings.contains(name):
-                legacy_settings[name] = settings.value(name, type=GENERAL_SETTING_TYPES[name])
-        settings.remove("")
-        settings.endGroup()
-        if legacy_settings:
-            local_config.saveSectionSettings(self.__class__.__name__, legacy_settings)
-
         self._settings = local_config.loadSectionSettings(self.__class__.__name__, GENERAL_SETTINGS)
         self._cloud_settings = local_config.loadSectionSettings("Cloud", CLOUD_SETTINGS)
 
@@ -277,6 +270,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
 
         # tools menu connections
         self.uiVPCSAction.triggered.connect(self._vpcsActionSlot)
+        self.uiQemuImgWizardAction.triggered.connect(self._qemuImgWizardActionSlot)
 
         # annotate menu connections
         self.uiAddNoteAction.triggered.connect(self._addNoteActionSlot)
@@ -385,7 +379,6 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         except OSError as e:
             QtWidgets.QMessageBox.critical(self, "New project", "Could not create project files directory {}: {}".format(new_project_settings["project_files_dir"], e))
             self._createTemporaryProject()
-            return
 
         # let all modules know about the new project files directory
         # self.uiGraphicsView.updateProjectFilesDir(new_project_settings["project_files_dir"])
@@ -397,6 +390,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self._project.setTopologyFile(new_project_settings["project_path"])
         self._project.setType(new_project_settings["project_type"])
         self.saveProject(new_project_settings["project_path"])
+        self.project_new_signal.emit(self._project.topologyFile())
 
     def _newProjectActionSlot(self):
         """
@@ -415,7 +409,6 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             if create_new_project:
                 new_project_settings = project_dialog.getNewProjectSettings()
                 self._createNewProject(new_project_settings)
-                self.project_new_signal.emit(self._project.topologyFile())
             else:
                 self._createTemporaryProject()
 
@@ -429,7 +422,8 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                                                         self.projectsDirPath(),
                                                         "All files (*.*);;GNS3 project files (*.gns3);;NET files (*.net)",
                                                         "GNS3 project files (*.gns3)")
-        self._loadPath(path)
+        if path:
+            self._loadPath(path)
 
     def openRecentFileSlot(self):
         """
@@ -504,8 +498,9 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         Exports all configs to a directory.
         """
 
-        path = QtWidgets.QFileDialog.getExistingDirectory(self, "Export directory", ".", QtWidgets.QFileDialog.ShowDirsOnly)
+        path = QtWidgets.QFileDialog.getExistingDirectory(self, "Export directory", self._export_configs_to_dir, QtWidgets.QFileDialog.ShowDirsOnly)
         if path:
+            self._export_configs_to_dir = os.path.dirname(path)
             for module in MODULES:
                 instance = module.instance()
                 if hasattr(instance, "exportConfigs"):
@@ -516,8 +511,9 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         Imports all configs from a directory.
         """
 
-        path = QtWidgets.QFileDialog.getExistingDirectory(self, "Import directory", ".", QtWidgets.QFileDialog.ShowDirsOnly)
+        path = QtWidgets.QFileDialog.getExistingDirectory(self, "Import directory", self._import_configs_from_dir, QtWidgets.QFileDialog.ShowDirsOnly)
         if path:
+            self._import_configs_from_dir = os.path.dirname(path)
             for module in MODULES:
                 instance = module.instance()
                 if hasattr(instance, "importConfigs"):
@@ -551,16 +547,10 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
 
         # supported image file formats
         file_formats = "PNG File (*.png);;JPG File (*.jpeg *.jpg);;BMP File (*.bmp);;XPM File (*.xpm *.xbm);;PPM File (*.ppm);;TIFF File (*.tiff)"
-
-        screenshot_dir = self.projectsDirPath()
-        project_dir = self._project.filesDir()
-        if project_dir:
-            screenshot_dir = project_dir
-
-        screenshot_path = os.path.join(screenshot_dir, "screenshot")
-        path, selected_filter = QtWidgets.QFileDialog.getSaveFileName(self, "Screenshot", screenshot_path, file_formats)
+        path, selected_filter = QtWidgets.QFileDialog.getSaveFileName(self, "Screenshot", self._screenshots_dir, file_formats)
         if not path:
             return
+        self._screenshots_dir = os.path.dirname(path)
 
         # add the extension if missing
         file_format = "." + selected_filter[:4].lower().strip()
@@ -783,6 +773,10 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         except (OSError, ValueError) as e:
             QtWidgets.QMessageBox.critical(self, "Console", "Cannot start console application: {}".format(e))
 
+    def _qemuImgWizardActionSlot(self):
+        img_wizard = QemuImageWizard(self)
+        img_wizard.exec_()
+
     def _addNoteActionSlot(self):
         """
         Slot called when adding a new note on the scene.
@@ -802,9 +796,11 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         # supported image file formats
         file_formats = "PNG File (*.png);;JPG File (*.jpeg *.jpg);;BMP File (*.bmp);;XPM File (*.xpm *.xbm);;PPM File (*.ppm);;TIFF File (*.tiff);;All files (*.*)"
 
-        path = QtWidgets.QFileDialog.getOpenFileName(self, "Image", self.projectsDirPath(), file_formats)
+        path = QtWidgets.QFileDialog.getOpenFileName(self, "Image", self._pictures_dir, file_formats)
         if not path:
             return
+        path = path[0]
+        self._pictures_dir = os.path.dirname(path)
 
         pixmap = QtGui.QPixmap(path)
         if pixmap.isNull():
@@ -876,7 +872,11 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         if network_reply.error() != QtNetwork.QNetworkReply.NoError and not is_silent:
             QtWidgets.QMessageBox.critical(self, "Check For Update", "Cannot check for update: {}".format(network_reply.errorString()))
         else:
-            latest_release = bytes(network_reply.readAll()).decode("utf-8").rstrip()
+            try:
+                latest_release = bytes(network_reply.readAll()).decode("utf-8").rstrip()
+            except UnicodeDecodeError:
+                log.warning("Invalid answer from the update server")
+                return
             if parse_version(__version__) < parse_version(latest_release):
                 reply = QtWidgets.QMessageBox.question(self,
                                                        "Check For Update",
@@ -918,7 +918,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             QtWidgets.QMessageBox.critical(self, "Lab instructions", "Sorry, lab instructions are not supported with temporary projects")
             return
 
-        project_dir = os.path.dirname(self._project.topologyFile())
+        project_dir = glob.escape(os.path.dirname(self._project.topologyFile()))
         instructions_files = glob.glob(project_dir + os.sep + "instructions.*")
         instructions_files += glob.glob(os.path.join(project_dir, "instructions") + os.sep + "instructions*")
         if len(instructions_files):
@@ -962,6 +962,12 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             self.uiNodesDockWidget.setVisible(True)
             self.uiNodesView.clear()
             self.uiNodesView.populateNodesView(category, self._project.type())
+
+    def _localConfigChangedSlot(self):
+        """
+        Called when the local config change
+        """
+        self.uiNodesView.refresh()
 
     def _browseRoutersActionSlot(self):
         """
@@ -1041,6 +1047,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         :param event: QCloseEvent
         """
 
+        log.debug("Close the main Windows")
         servers = Servers.instance()
         if self._project.closed() and not servers.localServerIsRunning():
             event.accept()
@@ -1068,6 +1075,8 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
 
         log.debug("_finish_application_closing")
         VPCS.instance().stopMultiHostVPCS()
+
+        GNS3VM.instance().shutdown()
 
         local_config = LocalConfig.instance()
         local_config.saveSectionSettings("GUI", {"geometry": bytes(self.saveGeometry().toBase64()).decode(),
@@ -1120,25 +1129,22 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                     return False
         return True
 
-    def _findUnusedLocalPort(self, host):
-        """
-        Find an unused port.
-
-        :param host: server hosts
-
-        :returns: port number
-        """
-
-        s = socket.socket()
-        s.bind((host, 0))
-        return s.getsockname()[1]
-
     def startupLoading(self):
         """
         Called by QTimer.singleShot to load everything needed at startup.
         """
+
         # restore the style
         self._setStyle(self._settings.get("style"))
+
+        servers = Servers.instance()
+        if GNS3VM.instance().autoStart():
+            # automatically start the GNS3 VM
+            worker = WaitForVMWorker()
+            progress_dialog = ProgressDialog(worker, "GNS3 VM", "Starting the GNS3 VM...", "Cancel", busy=True, parent=self)
+            progress_dialog.show()
+            if progress_dialog.exec_():
+                servers.initVMServer()
 
         if self._settings["debug_level"]:
             root = logging.getLogger()
@@ -1150,56 +1156,12 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self._gettingStartedActionSlot(auto=True)
 
         # connect to the local server
-        servers = Servers.instance()
         server = servers.localServer()
-
         if servers.localServerAutoStart():
-            if server.isServerRunning():
+            if server.isLocalServerRunning():
                 log.info("Connecting to a server already running on this host")
             else:
-                # check the local server path
-                local_server_path = servers.localServerPath()
-                if not local_server_path:
-                    log.warn("No local server is configured")
-                    return
-                if not os.path.isfile(local_server_path):
-                    QtWidgets.QMessageBox.critical(self, "Local server", "Could not find local server {}".format(local_server_path))
-                    return
-                elif not os.access(local_server_path, os.X_OK):
-                    QtWidgets.QMessageBox.critical(self, "Local server", "{} is not an executable".format(local_server_path))
-                    return
-
-                try:
-                    # check if the local address still exists
-                    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                        sock.bind((server.host(), 0))
-                except OSError as e:
-                    QtWidgets.QMessageBox.critical(self, "Local server", "Could not bind with {}: {} (please check your host binding setting in the preferences)".format(server.host(), e))
-                    return
-
-                try:
-                    # check if the port is already taken
-                    find_unused_port = False
-                    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                        sock.bind((server.host(), server.port()))
-                except OSError as e:
-                    log.warning("Could not use socket {}:{} {}".format(server.host(), server.port(), e))
-                    find_unused_port = True
-
-                if find_unused_port:
-                    # find an alternate port for the local server
-
-                    old_port = server.port()
-                    try:
-                        server.setPort(self._findUnusedLocalPort(server.host()))
-                    except OSError as e:
-                        QtWidgets.QMessageBox.critical(self, "Local server", "Could not find an unused port for the local server: {}".format(e))
-                        return
-                    log.warning("The server port {} is already in use, fallback to port {}".format(old_port, server.port()))
-                    print("The server port {} is already in use, fallback to port {}".format(old_port, server.port()))
-
-                if servers.startLocalServer():
+                if servers.initLocalServer() and servers.startLocalServer():
                     worker = WaitForConnectionWorker(server.host(), server.port())
                     progress_dialog = ProgressDialog(worker,
                                                      "Local server",
@@ -1224,7 +1186,6 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             if create_new_project:
                 new_project_settings = project_dialog.getNewProjectSettings()
                 self._createNewProject(new_project_settings)
-                self.project_new_signal.emit(self._project.topologyFile())
 
         if self._settings["check_for_update"]:
             # automatic check for update every week (604800 seconds)
@@ -1838,16 +1799,17 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
 
         style = """QWidget {background-color: #535353}
 QToolBar {border:0px}
-QGraphicsView, QTextEdit, QPlainTextEdit, QTreeWidget, QLineEdit, QSpinBox, QComboBox {background-color: #dedede}
+QGraphicsView, QTextEdit, QPlainTextEdit, QTreeWidget, QListWidget, QLineEdit, QSpinBox, QComboBox {background-color: #dedede}
 QDockWidget, QMenuBar, QPushButton, QToolButton, QTabWidget {color: #dedede; font: bold 11px}
 QLabel, QMenu, QStatusBar, QRadioButton, QCheckBox {color: #dedede}
 QMenuBar::item {background-color: #535353}
 QMenu::item:selected {color: white; background-color: #5f5f5f}
 QToolButton:hover {background-color: #5f5f5f}
 QGroupBox {color: #dedede; font: bold 12px; padding: 15px; border-style: none}
-QAbstractScrollArea::corner { background: #535353}
+QAbstractScrollArea::corner {background: #535353}
 QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal, QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {background: none}
 QComboBox {selection-color: black; selection-background-color: #dedede}
+QComboBox QAbstractItemView {background-color: #dedede}
 """
 
         if sys.platform.startswith("darwin"):

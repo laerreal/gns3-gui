@@ -19,6 +19,10 @@ import sys
 from setuptools import setup, find_packages
 from setuptools.command.test import test as TestCommand
 
+# we only support Python 3 version >= 3.4
+if sys.version_info < (3, 4):
+    raise SystemExit("Python 3.4 or higher is required")
+
 
 class Tox(TestCommand):
 
@@ -45,6 +49,7 @@ setup(
     description="GNS3 graphical interface for the GNS3 server.",
     long_description=open("README.rst", "r").read(),
     install_requires=[
+        "jsonschema>=2.4.0",
         "apache-libcloud>=0.14.1",
         "requests>=2.4.3",
         "paramiko>=1.15.1",
@@ -59,7 +64,7 @@ setup(
     },
     packages=find_packages(".", exclude=["docs", "tests"]),
     include_package_data=True,
-    package_data={"gns3": ["configs/*.txt"]},
+    package_data={"gns3": ["configs/*.txt", "schemas/*.json"]},
     platforms="any",
     classifiers=[
         "Development Status :: 4 - Beta",
@@ -71,8 +76,8 @@ setup(
         "Operating System :: OS Independent",
         "Programming Language :: Python",
         "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.3",
         "Programming Language :: Python :: 3.4",
+        "Programming Language :: Python :: 3.5",
         "Programming Language :: Python :: Implementation :: CPython",
     ],
 )

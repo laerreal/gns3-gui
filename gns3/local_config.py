@@ -18,13 +18,18 @@
 import sys
 import os
 import json
+import shutil
+
+from .qt import QtCore
 from .version import __version__
 
 import logging
 log = logging.getLogger(__name__)
 
 
-class LocalConfig:
+class LocalConfig(QtCore.QObject):
+
+    config_changed_signal = QtCore.Signal()
 
     """
     Handles the local GUI settings.
@@ -32,6 +37,7 @@ class LocalConfig:
 
     def __init__(self):
 
+        super().__init__()
         self._settings = {}
 
         if sys.platform.startswith("win"):
@@ -65,9 +71,7 @@ class LocalConfig:
 
         # First load system wide settings
         if os.path.exists(system_wide_config_file):
-            self._settings = self._readConfig(system_wide_config_file)
-            if not self._settings:
-                log.warning("No system wide settings loaded from {}".format(system_wide_config_file))
+            self._readConfig(system_wide_config_file)
 
         config_file_in_cwd = os.path.join(os.getcwd(), filename)
         if os.path.exists(config_file_in_cwd):
@@ -87,16 +91,22 @@ class LocalConfig:
         self._settings.update(user_settings)
         self._writeConfig()
 
+        timer = QtCore.QTimer(self)
+        timer.timeout.connect(self._checkConfigChanged)
+        timer.setInterval(1000)  #  milliseconds
+        timer.start()
+
     def _readConfig(self, config_path):
         """
         Read the configuration file.
         """
         try:
             with open(config_path, "r", encoding="utf-8") as f:
-                return json.load(f)
+                self._last_config_changed = os.stat(config_path).st_mtime
+                config = json.load(f)
+                self._settings.update(config)
         except (ValueError, OSError) as e:
             log.error("Could not read the config file {}: {}".format(self._config_file, e))
-
         return dict()
 
     def _writeConfig(self):
@@ -104,11 +114,22 @@ class LocalConfig:
         Write the configuration file.
         """
 
+        self._settings["version"] = __version__
         try:
-            with open(self._config_file, "w", encoding="utf-8") as f:
+            temporary = os.path.join(os.path.dirname(self._config_file), "gns3_gui.tmp")
+            with open(temporary, "w", encoding="utf-8") as f:
                 json.dump(self._settings, f, sort_keys=True, indent=4)
+            shutil.move(temporary, self._config_file)
+            log.info("Configuration save to %s", self._config_file)
+            self._last_config_changed = os.stat(self._config_file).st_mtime
         except (ValueError, OSError) as e:
             log.error("Could not write the config file {}: {}".format(self._config_file, e))
+
+    def _checkConfigChanged(self):
+        if self._last_config_changed < os.stat(self._config_file).st_mtime:
+            log.info("Client config has changed, reloading it...")
+            self._readConfig(self._config_file)
+            self.config_changed_signal.emit()
 
     def configFilePath(self):
         """
@@ -126,7 +147,7 @@ class LocalConfig:
         :returns: path to the config file.
         """
 
-        self._settings = self._readConfig(self._config_file)
+        self._readConfig(self._config_file)
         self._config_file = config_file
 
     def settings(self):
@@ -136,7 +157,7 @@ class LocalConfig:
         :returns: settings (dict)
         """
 
-        return self._readConfig(self._config_file)
+        return self._settings
 
     def setSettings(self, settings):
         """
@@ -146,7 +167,8 @@ class LocalConfig:
         """
 
         self._settings.update(settings)
-        self._writeConfig()
+        if self._settings != settings:
+            self._writeConfig()
 
     def loadSectionSettings(self, section, default_settings):
         """
@@ -179,8 +201,10 @@ class LocalConfig:
 
         if section not in self._settings:
             self._settings[section] = {}
-        self._settings[section].update(settings)
-        self._writeConfig()
+        if self._settings[section] != settings:
+            self._settings[section].update(settings)
+            log.info("Section %s has changed. Saving configuration", section)
+            self._writeConfig()
 
     @staticmethod
     def instance():

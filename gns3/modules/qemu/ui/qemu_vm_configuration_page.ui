@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>486</width>
-    <height>407</height>
+    <width>490</width>
+    <height>460</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -130,6 +130,13 @@
            </property>
           </widget>
          </item>
+         <item>
+          <widget class="QToolButton" name="uiHdaDiskImageCreateToolButton">
+           <property name="text">
+            <string>Create...</string>
+           </property>
+          </widget>
+         </item>
         </layout>
        </item>
        <item row="1" column="0">
@@ -151,6 +158,13 @@
            </property>
            <property name="toolButtonStyle">
             <enum>Qt::ToolButtonTextOnly</enum>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QToolButton" name="uiHdbDiskImageCreateToolButton">
+           <property name="text">
+            <string>Create...</string>
            </property>
           </widget>
          </item>
@@ -178,6 +192,13 @@
            </property>
           </widget>
          </item>
+         <item>
+          <widget class="QToolButton" name="uiHdcDiskImageCreateToolButton">
+           <property name="text">
+            <string>Create...</string>
+           </property>
+          </widget>
+         </item>
         </layout>
        </item>
        <item row="3" column="0">
@@ -199,6 +220,13 @@
            </property>
            <property name="toolButtonStyle">
             <enum>Qt::ToolButtonTextOnly</enum>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QToolButton" name="uiHddDiskImageCreateToolButton">
+           <property name="text">
+            <string>Create...</string>
            </property>
           </widget>
          </item>
@@ -248,13 +276,23 @@
         </widget>
        </item>
        <item row="1" column="0">
+        <widget class="QLabel" name="uiMacAddrLabel">
+         <property name="text">
+          <string>Base MAC:</string>
+         </property>
+        </widget>
+       </item>
+       <item row="1" column="1">
+        <widget class="QLineEdit" name="uiMacAddrLineEdit"/>
+       </item>
+       <item row="2" column="0">
         <widget class="QLabel" name="uiAdapterTypesLabel">
          <property name="text">
           <string>Type:</string>
          </property>
         </widget>
        </item>
-       <item row="1" column="1">
+       <item row="2" column="1">
         <widget class="QComboBox" name="uiAdapterTypesComboBox">
          <property name="sizePolicy">
           <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
@@ -264,14 +302,14 @@
          </property>
         </widget>
        </item>
-       <item row="2" column="0" colspan="2">
+       <item row="3" column="0" colspan="2">
         <widget class="QCheckBox" name="uiLegacyNetworkingCheckBox">
          <property name="text">
           <string>Use the legacy networking mode</string>
          </property>
         </widget>
        </item>
-       <item row="3" column="1">
+       <item row="4" column="1">
         <spacer name="verticalSpacer_3">
          <property name="orientation">
           <enum>Qt::Vertical</enum>
@@ -356,7 +394,7 @@
           <string>Optimizations</string>
          </property>
          <layout class="QGridLayout" name="gridLayout">
-          <item row="0" column="0" colspan="2">
+          <item row="1" column="0" colspan="2">
            <widget class="QCheckBox" name="uiActivateCPUThrottlingCheckBox">
             <property name="text">
              <string>Activate CPU throttling</string>
@@ -366,14 +404,14 @@
             </property>
            </widget>
           </item>
-          <item row="1" column="0">
+          <item row="2" column="0">
            <widget class="QLabel" name="uiCPUThrottlingLabel">
             <property name="text">
              <string>Percentage of CPU allowed:</string>
             </property>
            </widget>
           </item>
-          <item row="1" column="1">
+          <item row="2" column="1">
            <widget class="QSpinBox" name="uiCPUThrottlingSpinBox">
             <property name="suffix">
              <string> %</string>
@@ -389,14 +427,14 @@
             </property>
            </widget>
           </item>
-          <item row="2" column="0">
+          <item row="3" column="0">
            <widget class="QLabel" name="uiProcessPriorityLabel">
             <property name="text">
              <string>Process priority:</string>
             </property>
            </widget>
           </item>
-          <item row="2" column="1">
+          <item row="3" column="1">
            <widget class="QComboBox" name="uiProcessPriorityComboBox">
             <property name="sizePolicy">
              <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
@@ -439,6 +477,13 @@
             </item>
            </widget>
           </item>
+          <item row="0" column="0" colspan="2">
+           <widget class="QCheckBox" name="uiKVMAccelerationCheckBox">
+            <property name="text">
+             <string>Enable KVM acceleration</string>
+            </property>
+           </widget>
+          </item>
          </layout>
         </widget>
        </item>
@@ -458,9 +503,17 @@
           <item row="0" column="2">
            <widget class="QLineEdit" name="uiQemuOptionsLineEdit"/>
           </item>
+          <item row="1" column="0" colspan="3">
+           <widget class="QCheckBox" name="uiACPIShutdownCheckBox">
+            <property name="text">
+             <string>Enable ACPI shutdown (experimental)</string>
+            </property>
+           </widget>
+          </item>
          </layout>
          <zorder>uiQemuOptionsLineEdit</zorder>
          <zorder>uiQemuOptionsLabel</zorder>
+         <zorder>uiACPIShutdownCheckBox</zorder>
         </widget>
        </item>
        <item>

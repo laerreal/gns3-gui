@@ -19,8 +19,8 @@
 Configuration page for VirtualBox VMs.
 """
 
-from gns3.qt import QtGui, QtWidgets
-from gns3.dialogs.node_configurator_dialog import ConfigurationError
+from gns3.qt import QtWidgets
+from gns3.dialogs.node_properties_dialog import ConfigurationError
 
 from ..ui.virtualbox_vm_configuration_page_ui import Ui_virtualBoxVMConfigPageWidget
 
@@ -92,6 +92,7 @@ class VirtualBoxVMConfigurationPage(QtWidgets.QWidget, Ui_virtualBoxVMConfigPage
         self.uiUseAnyAdapterCheckBox.setChecked(settings["use_any_adapter"])
         self.uiVMRamSpinBox.setValue(settings["ram"])
         self.uiHeadlessModeCheckBox.setChecked(settings["headless"])
+        self.uiACPIShutdownCheckBox.setChecked(settings["acpi_shutdown"])
         self.uiEnableConsoleCheckBox.setChecked(settings["enable_remote_console"])
 
     def saveSettings(self, settings, node=None, group=False):
@@ -104,7 +105,7 @@ class VirtualBoxVMConfigurationPage(QtWidgets.QWidget, Ui_virtualBoxVMConfigPage
         """
 
         # these settings cannot be shared by nodes and updated
-        # in the node configurator.
+        # in the node properties dialog.
         if not group:
 
             if "name" in settings:
@@ -130,6 +131,7 @@ class VirtualBoxVMConfigurationPage(QtWidgets.QWidget, Ui_virtualBoxVMConfigPage
         settings["ram"] = self.uiVMRamSpinBox.value()
         settings["adapter_type"] = self.uiAdapterTypesComboBox.currentText()
         settings["headless"] = self.uiHeadlessModeCheckBox.isChecked()
+        settings["acpi_shutdown"] = self.uiACPIShutdownCheckBox.isChecked()
         settings["use_any_adapter"] = self.uiUseAnyAdapterCheckBox.isChecked()
 
         adapters = self.uiAdaptersSpinBox.value()

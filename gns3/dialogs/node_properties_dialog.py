@@ -23,13 +23,13 @@ from gns3.http_client import HTTPClient
 from gns3.progress import Progress
 
 from ..qt import QtCore, QtGui, QtWidgets
-from ..ui.node_configurator_dialog_ui import Ui_NodeConfiguratorDialog
+from ..ui.node_properties_dialog_ui import Ui_NodePropertiesDialog
 
 
-class NodeConfiguratorDialog(QtWidgets.QDialog, Ui_NodeConfiguratorDialog):
+class NodePropertiesDialog(QtWidgets.QDialog, Ui_NodePropertiesDialog):
 
     """
-    Node configurator implementation.
+    Node properties implementation.
 
     :param node_items: list of NodeItem instances
     :param parent: parent widget
@@ -61,7 +61,7 @@ class NodeConfiguratorDialog(QtWidgets.QDialog, Ui_NodeConfiguratorDialog):
 
     def _loadNodeItems(self):
         """
-        Loads the nodes into the Node configurator QTreeWidget
+        Loads the nodes into the Node properties QTreeWidget
         """
 
         # create the parent (group) items
@@ -81,15 +81,16 @@ class NodeConfiguratorDialog(QtWidgets.QDialog, Ui_NodeConfiguratorDialog):
             if not node_item.node().initialized():
                 continue
             parent = " {} group".format(str(node_item.node()))
-            item = ConfigurationPageItem(self._parent_items[parent], node_item)
+            ConfigurationPageItem(self._parent_items[parent], node_item)
 
         # sort the tree
         self.uiNodesTreeWidget.sortByColumn(0, QtCore.Qt.AscendingOrder)
 
         if len(self._node_items) == 1:
             parent = " {} group".format(str(node_item.node()))
-            item = self._parent_items[parent].child(0);
+            item = self._parent_items[parent].child(0)
             item.setSelected(True)
+            self.uiNodesTreeWidget.setCurrentItem(item)
             self.showConfigurationPageSlot(item, 0)
             self.splitter.setSizes([0, 600])
 
@@ -249,7 +250,7 @@ class ConfigurationPageItem(QtWidgets.QTreeWidgetItem):
 
     def page(self):
         """
-        Returns the page widget to be displayed by the node configurator.
+        Returns the page widget to be displayed by the node properties dialog.
 
         :returns: QWidget instance
         """

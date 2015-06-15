@@ -465,8 +465,8 @@ class IOSRouterWizard(VMWizard, Ui_IOSRouterWizard):
                 server = server.url()
             else:
                 server = self.uiRemoteServersComboBox.currentText()
-        else:  # Cloud is selected
-            server = "cloud"
+        elif self.uiVMRadioButton.isChecked():
+            server = "vm"
 
         platform = self.uiPlatformComboBox.currentText()
         settings = {
@@ -487,6 +487,8 @@ class IOSRouterWizard(VMWizard, Ui_IOSRouterWizard):
             settings["hover_symbol"] = ":/symbols/multilayer_switch.selected.svg"
             settings["disk0"] = 1  # adds 1MB disk to store vlan.dat
             settings["category"] = Node.switches
+        else:
+            settings["auto_delete_disks"] = True
 
         image_file = os.path.basename(image)
         if image_file.lower().startswith("c7200p"):

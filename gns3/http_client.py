@@ -18,9 +18,11 @@
 
 import json
 import http
+import ipaddress
 import uuid
 import urllib.request
 import pathlib
+import base64
 from functools import partial
 
 from .version import __version__, __version_info__
@@ -65,10 +67,11 @@ class HTTPClient(QtCore.QObject):
         self._port = int(settings["port"])
         self._http_port = int(settings["port"])
         self._user = settings.get("user", None)
-
+        self._password = settings.get("password", None)
         self._connected = False
         self._local = True
         self._cloud = False
+        self._accept_insecure_certificate = settings.get("accept_insecure_certificate", False)
 
         self._network_manager = network_manager
 
@@ -87,7 +90,7 @@ class HTTPClient(QtCore.QObject):
         :param port: Remote port
         :returns: Tuple host, port to connect
         """
-        return (self._host, port)
+        return self._host, port
 
     def releaseTunnel(self, port):
         """
@@ -102,10 +105,22 @@ class HTTPClient(QtCore.QObject):
         """
         Return a dictionnary with server settings
         """
-        return {"protocol": self.protocol(),
-                "host": self.host(),
-                "port": self.port(),
-                "user": self.user()}
+        settings = {"protocol": self.protocol(),
+                    "host": self.host(),
+                    "port": self.port(),
+                    "user": self.user()}
+        if self.protocol() == "https":
+            settings["accept_insecure_certificate"] = self.acceptInsecureCertificate()
+        return settings
+
+    def acceptInsecureCertificate(self):
+        """
+        Does the server accept insecure SSL certificate
+        """
+        return self._accept_insecure_certificate
+
+    def setAcceptInsecureCertificate(self, accept):
+        self._accept_insecure_certificate = accept
 
     def host(self):
         """
@@ -134,12 +149,27 @@ class HTTPClient(QtCore.QObject):
         """
         return self._user
 
+    def progressCallbackDisable(self):
+        """
+        Disable the progress callback
+        """
+        HTTPClient._progress_callback.disable()
+
+    def progressCallbackEnable(self):
+        """
+        Disable the progress callback
+        """
+        HTTPClient._progress_callback.enable()
+
     def notify_progress_start_query(self, query_id):
         """
         Called when a query start
         """
         if HTTPClient._progress_callback:
-            HTTPClient._progress_callback.add_query_signal.emit(query_id, "Waiting for {}".format(self.url()))
+            if self._local:
+                HTTPClient._progress_callback.add_query_signal.emit(query_id, "Waiting for local GNS3 server")
+            else:
+                HTTPClient._progress_callback.add_query_signal.emit(query_id, "Waiting for {}".format(self.url()))
 
     def notify_progress_end_query(cls, query_id):
         """
@@ -220,15 +250,24 @@ class HTTPClient(QtCore.QObject):
         log.info("Connection to %s closed", self.url())
         self._connected = False
 
-    def isServerRunning(self):
+    def isLocalServerRunning(self):
         """
         Check if a server is already running on this host.
 
         :returns: boolean
         """
-
         try:
             url = "{protocol}://{host}:{port}/v1/version".format(protocol=self._scheme, host=self._http_host, port=self._http_port)
+
+            if self._user is not None:
+                auth_handler = urllib.request.HTTPBasicAuthHandler()
+                auth_handler.add_password(realm="GNS3 server",
+                                          uri=url,
+                                          user=self._user,
+                                          passwd=self._password)
+                opener = urllib.request.build_opener(auth_handler)
+                urllib.request.install_opener(opener)
+
             response = urllib.request.urlopen(url, timeout=2)
             content_type = response.getheader("CONTENT-TYPE")
             if response.status == 200 and content_type == "application/json":
@@ -243,8 +282,8 @@ class HTTPClient(QtCore.QObject):
                     log.debug("Running server is not a GNS3 local server (not started with --local)")
                     return False
                 return True
-        except (OSError, urllib.error.HTTPError, http.client.BadStatusLine) as e:
-            log.debug("No GNS3 server is already running on {}:{}: {}".format(self.host, self.port, e))
+        except (OSError, urllib.error.HTTPError, http.client.BadStatusLine, ValueError) as e:
+            log.debug("A non GNS3 server is already running on {}:{}: {}".format(self.host, self.port, e))
         return False
 
     def get(self, path, callback, body={}, context={}, downloadProgressCallback=None, showProgress=True):
@@ -376,7 +415,7 @@ class HTTPClient(QtCore.QObject):
             return
 
         if "version" not in params or "local" not in params:
-            msg = "The remote server {} is not a GNS 3 server".format(self.url())
+            msg = "The remote server {} is not a GNS3 server".format(self.url())
             log.error(msg)
             if callback is not None:
                 callback({"message": msg}, error=True, server=self)
@@ -395,7 +434,10 @@ class HTTPClient(QtCore.QObject):
                 print("WARNING: Use a different client and server version can create bugs. Use it at your own risk.")
 
         if params["local"] != self.isLocal():
-            msg = "Running server is not a GNS3 local server (not started with --local)"
+            if self.isLocal():
+                msg = "Running server is not a GNS3 local server (not started with --local)"
+            else:
+                msg = "Remote running server is started with --local. It is forbidden for security reasons"
             log.error(msg)
             if callback is not None:
                 callback({"message": msg}, error=True, server=self)
@@ -436,6 +478,17 @@ class HTTPClient(QtCore.QObject):
         else:
             return None
 
+    def addAuth(self, request):
+        """
+        If require add basic auth header
+        """
+        if self._user:
+            auth_string = "{}:{}".format(self._user, self._password)
+            auth_string = base64.b64encode(auth_string.encode("utf-8"))
+            auth_string = "Basic {}".format(auth_string.decode())
+            request.setRawHeader("Authorization", auth_string)
+        return request
+
     def executeHTTPQuery(self, method, path, callback, body, context={}, downloadProgressCallback=None, showProgress=True, ignoreErrors=False):
         """
         Call the remote server
@@ -457,10 +510,23 @@ class HTTPClient(QtCore.QObject):
         context["query_id"] = query_id
         if showProgress:
             self.notify_progress_start_query(context["query_id"])
-        log.debug("{method} {protocol}://{host}:{port}/v1{path} {body}".format(method=method, protocol=self._scheme, host=self._http_host, port=self._http_port, path=path, body=body))
-        url = QtCore.QUrl("{protocol}://{host}:{port}/v1{path}".format(protocol=self._scheme, host=self._host, port=self._http_port, path=path))
+
+        try:
+            ip = self._http_host.rsplit('%', 1)[0]
+            ipaddress.IPv6Address(ip)  # remove any scope ID
+            # this is an IPv6 address, we must surround it with brackets to be used with QUrl.
+            host = "[{}]".format(ip)
+        except ipaddress.AddressValueError:
+            host = self._http_host
+
+        log.debug("{method} {protocol}://{host}:{port}/v1{path} {body}".format(method=method, protocol=self._scheme, host=host, port=self._http_port, path=path, body=body))
+        url = QtCore.QUrl("{protocol}://{host}:{port}/v1{path}".format(protocol=self._scheme, host=host, port=self._http_port, path=path))
         request = self._request(url)
 
+        request = self.addAuth(request)
+
+        request.setRawHeader("Content-Type", "application/json")
+        request.setRawHeader("Content-Length", str(len(body)))
         request.setRawHeader("User-Agent", "GNS3 QT Client v{version}".format(version=__version__))
 
         # By default QT doesn't support GET with body even if it's in the RFC that's why we need to use sendCustomRequest
@@ -526,13 +592,21 @@ class HTTPClient(QtCore.QObject):
 
         if response.error() != QtNetwork.QNetworkReply.NoError:
             error_code = response.error()
+            error_message = response.errorString()
+
+            if not ignore_errors:
+                log.info("Response error: %s (error: %d)", error_message, error_code)
+
             if error_code < 200:
                 if not ignore_errors:
                     self.close()
+                    callback({"message": error_message}, error=True, server=self, context=context)
+                return
             else:
                 status = response.attribute(QtNetwork.QNetworkRequest.HttpStatusCodeAttribute)
-            error_message = response.errorString()
-            log.info("Response error: {} for {}".format(error_message, response.request().url()))
+                if status == 401:
+                    print(error_message)
+
             try:
                 body = bytes(response.readAll()).decode("utf-8").strip("\0")
                 # Some time antivirus intercept our query and reply with garbage content
@@ -574,6 +648,10 @@ class HTTPClient(QtCore.QObject):
         server["id"] = self._id
         server["local"] = self._local
         server["cloud"] = self._cloud
+        if "user" in server and self._local:
+            del server["user"]
+        if server["protocol"] == "https":
+            server["accept_insecure_certificate"] = self._accept_insecure_certificate
         return server
 
     def isCloud(self):

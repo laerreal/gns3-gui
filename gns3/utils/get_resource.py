@@ -47,10 +47,19 @@ def get_resource(resource_name):
 
     resource_path = None
     if hasattr(sys, "frozen") and sys.platform.startswith("darwin"):
-        resource_name = os.path.join("../Resources", resource_name)
+        resource_name = os.path.join(os.path.dirname(sys.executable), "../Resources", resource_name)
     if hasattr(sys, "frozen") and os.path.exists(resource_name):
-        resource_path = os.path.normpath(os.path.join(os.getcwd(), resource_name))
-    elif not hasattr(sys, "frozen") and pkg_resources.resource_exists("gns3", resource_name):
-        resource_path = pkg_resources.resource_filename("gns3", resource_name)
-        resource_path = os.path.normpath(resource_path)
+        resource_path = os.path.normpath(os.path.join(os.path.dirname(sys.executable), resource_name))
+    elif not hasattr(sys, "frozen"):
+        if pkg_resources.resource_exists("gns3", resource_name):
+            try:
+                resource_path = pkg_resources.resource_filename("gns3", resource_name)
+            except pkg_resources.ExtractionError as e:
+                log.fatal(e)
+                sys.stderr.write(e)
+                sys.exit(1)
+            resource_path = os.path.normpath(resource_path)
+        else:
+            resource_path = os.path.dirname(os.path.realpath(__file__))
+            resource_path = os.path.join(resource_path, "..", "..", "resources", resource_name)
     return resource_path

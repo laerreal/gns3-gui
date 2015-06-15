@@ -2,8 +2,8 @@
 
 # Form implementation generated from reading ui file 'vmware_vm_configuration_page.ui'
 #
-# Created: Tue May 26 09:46:14 2015
-#      by: PyQt5 UI code generator 5.4
+# Created: Sat Jun 13 17:12:34 2015
+#      by: PyQt5 UI code generator 5.2.1
 #
 # WARNING! All changes made in this file will be lost!
 
@@ -95,6 +95,6 @@ class Ui_VMwareVMConfigPageWidget(object):
         self.uiTabWidget.setTabText(self.uiTabWidget.indexOf(self.tab), _translate("VMwareVMConfigPageWidget", "General settings"))
         self.uiAdaptersLabel.setText(_translate("VMwareVMConfigPageWidget", "Adapters:"))
         self.label.setText(_translate("VMwareVMConfigPageWidget", "Type:"))
-        self.uiUseAnyAdapterCheckBox.setText(_translate("VMwareVMConfigPageWidget", "Allow GNS3 to use any configured VirtualBox adapter"))
+        self.uiUseAnyAdapterCheckBox.setText(_translate("VMwareVMConfigPageWidget", "Allow GNS3 to use any configured VMware adapter"))
         self.uiTabWidget.setTabText(self.uiTabWidget.indexOf(self.tab_2), _translate("VMwareVMConfigPageWidget", "Network"))
 

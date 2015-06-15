@@ -19,6 +19,9 @@
 VMware VM implementation.
 """
 
+import os
+import sys
+import tempfile
 
 from gns3.vm import VM
 from gns3.node import Node
@@ -374,30 +377,30 @@ class VMwareVM(VM):
 
         return self._ports
 
-    # def serialConsole(self):
-    #     """
-    #     Returns either the serial console must be used or not.
-    #
-    #     :return: boolean
-    #     """
-    #
-    #     if self._settings["enable_remote_console"]:
-    #         return False
-    #     return True
-    #
-    # def serialPipe(self):
-    #     """
-    #     Returns the VM serial pipe path for serial console connections.
-    #
-    #     :returns: path to the serial pipe
-    #     """
-    #
-    #     if sys.platform.startswith("win"):
-    #         pipe_name = r"\\.\pipe\gns3_vbox\{}".format(self._vm_id)
-    #     else:
-    #         pipe_name = os.path.join(tempfile.gettempdir(), "gns3_vbox", "{}".format(self._vm_id))
-    #         os.makedirs(os.path.dirname(pipe_name), exist_ok=True)
-    #     return pipe_name
+    def serialConsole(self):
+        """
+        Returns either the serial console must be used or not.
+
+        :return: boolean
+        """
+
+        if self._settings["enable_remote_console"]:
+            return False
+        return True
+
+    def serialPipe(self):
+        """
+        Returns the VM serial pipe path for serial console connections.
+
+        :returns: path to the serial pipe
+        """
+
+        if sys.platform.startswith("win"):
+            pipe_name = r"\\.\pipe\gns3_vmware\{}".format(self._vm_id)
+        else:
+            pipe_name = os.path.join(tempfile.gettempdir(), "gns3_vmware", "{}".format(self._vm_id))
+            os.makedirs(os.path.dirname(pipe_name), exist_ok=True)
+        return pipe_name
 
     def console(self):
         """
@@ -410,7 +413,7 @@ class VMwareVM(VM):
 
     def configPage(self):
         """
-        Returns the configuration page widget to be used by the node configurator.
+        Returns the configuration page widget to be used by the node properties dialog.
 
         :returns: QWidget object
         """

@@ -27,12 +27,21 @@ except ImportError:
     # raven is not installed with deb package in order to simplify packaging
     RAVEN_AVAILABLE = False
 
-
+from .utils.get_resource import get_resource
 from .version import __version__
 from .servers import Servers
 
 import logging
 log = logging.getLogger(__name__)
+
+
+# Dev build
+if __version__[4] != 0:
+    import faulthandler
+    # Display a traceback in case of segfault crash. Usefull when frozen
+    # Not enabled by default for security reason
+    log.info("Enable catching segfault")
+    faulthandler.enable()
 
 
 class CrashReport:
@@ -41,10 +50,10 @@ class CrashReport:
     Report crash to a third party service
     """
 
-    DSN = "sync+https://38097f3eda59454a9158a6847e2fdaca:f3d46b1e23aa459cbe9b193ac1635a5f@app.getsentry.com/38506"
+    DSN = "sync+https://d21f3e7abc3f48f88e9ed700cae2d936:2824d6b1321b4a16aa90dd71f337d42f@app.getsentry.com/38506"
     if hasattr(sys, "frozen"):
-        cacert = os.path.join(os.getcwd(), "cacert.pem")
-        if os.path.isfile(cacert):
+        cacert = get_resource("cacert.pem")
+        if cacert is not None and os.path.isfile(cacert):
             DSN += "?ca_certs={}".format(cacert)
         else:
             log.warning("The SSL certificate bundle file '{}' could not be found".format(cacert))

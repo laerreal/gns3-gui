@@ -22,9 +22,9 @@ Configuration page for Dynamips IOS routers.
 import os
 import re
 
-from gns3.qt import QtCore, QtGui, QtWidgets
 from gns3.servers import Servers
-from gns3.dialogs.node_configurator_dialog import ConfigurationError
+from gns3.qt import QtCore, QtGui, QtWidgets
+from gns3.dialogs.node_properties_dialog import ConfigurationError
 from ..ui.ios_router_configuration_page_ui import Ui_iosRouterConfigPageWidget
 from ..settings import CHASSIS, ADAPTER_MATRIX, WIC_MATRIX
 
@@ -55,13 +55,14 @@ class IOSRouterConfigurationPage(QtWidgets.QWidget, Ui_iosRouterConfigPageWidget
         self.uiStartupConfigToolButton.clicked.connect(self._startupConfigBrowserSlot)
         self.uiPrivateConfigToolButton.clicked.connect(self._privateConfigBrowserSlot)
         self.uiIOSImageToolButton.clicked.connect(self._iosImageBrowserSlot)
-
+        self._server = None
         self._idle_valid = False
         idle_pc_rgx = QtCore.QRegExp("^(0x[0-9a-fA-F]{8})?$")
         validator = QtGui.QRegExpValidator(idle_pc_rgx, self)
         self.uiIdlepcLineEdit.setValidator(validator)
         self.uiIdlepcLineEdit.textChanged.connect(self._idlePCValidateSlot)
         self.uiIdlepcLineEdit.textChanged.emit(self.uiIdlepcLineEdit.text())
+        self._default_configs_dir = os.path.join(os.path.dirname(QtCore.QSettings().fileName()), "base_configs")
 
     def _idlePCValidateSlot(self):
         """
@@ -87,7 +88,7 @@ class IOSRouterConfigurationPage(QtWidgets.QWidget, Ui_iosRouterConfigPageWidget
         """
 
         from ..pages.ios_router_preferences_page import IOSRouterPreferencesPage
-        path = IOSRouterPreferencesPage.getIOSImage(self, self.server)
+        path = IOSRouterPreferencesPage.getIOSImage(self, self._server)
         if not path:
             return
         self.uiIOSImageLineEdit.clear()
@@ -123,11 +124,11 @@ class IOSRouterConfigurationPage(QtWidgets.QWidget, Ui_iosRouterConfigPageWidget
         Slot to open a file browser and select a startup-config file.
         """
 
-        config_dir = os.path.join(os.path.dirname(QtCore.QSettings().fileName()), "base_configs")
-        path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Select a startup configuration", config_dir)
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Select a startup configuration", self._default_configs_dir)
         if not path:
             return
 
+        self._default_configs_dir = os.path.dirname(path)
         if not os.access(path, os.R_OK):
             QtWidgets.QMessageBox.critical(self, "Startup configuration", "Cannot read {}".format(path))
             return
@@ -140,11 +141,11 @@ class IOSRouterConfigurationPage(QtWidgets.QWidget, Ui_iosRouterConfigPageWidget
         Slot to open a file browser and select a private-config file.
         """
 
-        config_dir = os.path.join(os.path.dirname(QtCore.QSettings().fileName()), "base_configs")
-        path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Select a private configuration", config_dir)
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Select a private configuration", self._default_configs_dir)
         if not path:
             return
 
+        self._default_configs_dir = os.path.dirname(path)
         if not os.access(path, os.R_OK):
             QtWidgets.QMessageBox.critical(self, "Private configuration", "Cannot read {}".format(path))
             return
@@ -215,6 +216,11 @@ class IOSRouterConfigurationPage(QtWidgets.QWidget, Ui_iosRouterConfigPageWidget
         :param group: indicates the settings apply to a group of routers
         """
 
+        if node:
+            self._server = node.server()
+        else:
+            self._server = Servers.instance().getServerFromString(settings["server"])
+
         if not group:
             self.uiNameLineEdit.setText(settings["name"])
 
@@ -235,11 +241,6 @@ class IOSRouterConfigurationPage(QtWidgets.QWidget, Ui_iosRouterConfigPageWidget
 
             # load the MAC address setting
             self.uiBaseMACLineEdit.setInputMask("HHHH.HHHH.HHHH;_")
-
-#             regexp = QtCore.QRegExp("([0-9a-fA-F]{4}\.){2}[0-9a-fA-F]{4}")
-#             validator = QtGui.QRegExpValidator(regexp)
-#             self.uiBaseMACLineEdit.setValidator(validator)
-
             if settings["mac_addr"]:
                 self.uiBaseMACLineEdit.setText(settings["mac_addr"])
             else:
@@ -300,14 +301,13 @@ class IOSRouterConfigurationPage(QtWidgets.QWidget, Ui_iosRouterConfigPageWidget
                 if index != -1:
                     self.uiNPEComboBox.setCurrentIndex(index)
 
-            if "sensors" in settings:
+            if node:
                 # load the sensor settings
                 self.uiSensor1SpinBox.setValue(settings["sensors"][0])
                 self.uiSensor2SpinBox.setValue(settings["sensors"][1])
                 self.uiSensor3SpinBox.setValue(settings["sensors"][2])
                 self.uiSensor4SpinBox.setValue(settings["sensors"][3])
 
-            if "power_supplies" in settings:
                 if settings["power_supplies"][0] == 1:
                     self.uiPowerSupply1ComboBox.setCurrentIndex(0)
                 else:
@@ -340,6 +340,7 @@ class IOSRouterConfigurationPage(QtWidgets.QWidget, Ui_iosRouterConfigPageWidget
         self.uiNvramSpinBox.setValue(settings["nvram"])
         self.uiDisk0SpinBox.setValue(settings["disk0"])
         self.uiDisk1SpinBox.setValue(settings["disk1"])
+        self.uiAutoDeleteCheckBox.setChecked(settings["auto_delete_disks"])
 
         # load all the slots with configured adapters
         self._loadAdapterConfig(platform, chassis, settings)
@@ -382,8 +383,6 @@ class IOSRouterConfigurationPage(QtWidgets.QWidget, Ui_iosRouterConfigPageWidget
             self.uiSparseMemoryCheckBox.setChecked(settings["sparsemem"])
         else:
             self.uiSparseMemoryCheckBox.hide()
-
-        self.server = Servers.instance().getServerFromString(settings["server"])
 
     def _checkForLinkConnectedToAdapter(self, slot_number, settings, node):
         """
@@ -460,11 +459,14 @@ class IOSRouterConfigurationPage(QtWidgets.QWidget, Ui_iosRouterConfigPageWidget
                     settings["aux"] = aux
 
             # check and save the base MAC address
-            # mac = self.uiBaseMACLineEdit.text()
-            # if mac and not re.search(r"""^([0-9a-fA-F]{4}\.){2}[0-9a-fA-F]{4}$""", mac):
-            #    QtWidgets.QMessageBox.critical(self, "MAC address", "Invalid MAC address (format required: hhhh.hhhh.hhhh)")
-            # elif mac != "":
-            #    settings["mac_addr"] = mac
+            mac = self.uiBaseMACLineEdit.text()
+            if mac != "..":
+                if not re.search(r"""^([0-9a-fA-F]{4}\.){2}[0-9a-fA-F]{4}$""", mac):
+                    QtWidgets.QMessageBox.critical(self, "MAC address", "Invalid MAC address (format required: hhhh.hhhh.hhhh)")
+                else:
+                    settings["mac_addr"] = mac
+            elif not node:
+                settings["mac_addr"] = ""
 
             # save the IOS image path
             settings["image"] = self.uiIOSImageLineEdit.text()
@@ -509,24 +511,25 @@ class IOSRouterConfigurationPage(QtWidgets.QWidget, Ui_iosRouterConfigPageWidget
             settings["midplane"] = self.uiMidplaneComboBox.currentText()
             settings["npe"] = self.uiNPEComboBox.currentText()
 
-            sensors = []
-            sensors.append(self.uiSensor1SpinBox.value())
-            sensors.append(self.uiSensor2SpinBox.value())
-            sensors.append(self.uiSensor3SpinBox.value())
-            sensors.append(self.uiSensor4SpinBox.value())
-            settings["sensors"] = sensors
+            if node:
+                sensors = []
+                sensors.append(self.uiSensor1SpinBox.value())
+                sensors.append(self.uiSensor2SpinBox.value())
+                sensors.append(self.uiSensor3SpinBox.value())
+                sensors.append(self.uiSensor4SpinBox.value())
+                settings["sensors"] = sensors
 
-            power_supplies = []
-            if self.uiPowerSupply1ComboBox.currentIndex() == 0:
-                power_supplies.append(1)
-            else:
-                power_supplies.append(0)
+                power_supplies = []
+                if self.uiPowerSupply1ComboBox.currentIndex() == 0:
+                    power_supplies.append(1)
+                else:
+                    power_supplies.append(0)
 
-            if self.uiPowerSupply2ComboBox.currentIndex() == 0:
-                power_supplies.append(1)
-            else:
-                power_supplies.append(0)
-            settings["power_supplies"] = power_supplies
+                if self.uiPowerSupply2ComboBox.currentIndex() == 0:
+                    power_supplies.append(1)
+                else:
+                    power_supplies.append(0)
+                settings["power_supplies"] = power_supplies
         else:
             # save the I/O memory setting
             settings["iomem"] = self.uiIomemSpinBox.value()
@@ -536,6 +539,7 @@ class IOSRouterConfigurationPage(QtWidgets.QWidget, Ui_iosRouterConfigPageWidget
         settings["nvram"] = self.uiNvramSpinBox.value()
         settings["disk0"] = self.uiDisk0SpinBox.value()
         settings["disk1"] = self.uiDisk1SpinBox.value()
+        settings["auto_delete_disks"] = self.uiAutoDeleteCheckBox.isChecked()
 
         # save the system ID (processor board ID in IOS) setting
         settings["system_id"] = self.uiSystemIdLineEdit.text()

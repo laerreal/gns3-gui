@@ -25,6 +25,7 @@ import json
 import uuid
 import glob
 import shutil
+import sys
 from .qt import QtGui, QtSvg, QtWidgets
 
 
@@ -40,12 +41,15 @@ from .modules import MODULES
 from .modules.module_error import ModuleError
 from .utils.message_box import MessageBox
 from .version import __version__
+from .topology_check import getTopologyValidationErrors
 
 import logging
 log = logging.getLogger(__name__)
 
 # The topology version supported by client
 TOPOLOGY_REVISION = 4
+
+VALIDATION_ERROR_MESSAGE = "Validation error when dumping the topology.\nIt's probably a false positive but please send the .gns3 to developers@gns3.net.\nThanks !"
 
 
 class TopologyInstance:
@@ -97,6 +101,7 @@ class Topology:
         self._images = []
         self._topology = None
         self._initialized_nodes = []
+        self._initialized_links = []
         self._resources_type = "local"
         self._instances = []
         self._auto_start = False
@@ -386,6 +391,7 @@ class Topology:
         self._ellipses.clear()
         self._images.clear()
         self._initialized_nodes.clear()
+        self._initialized_links.clear()
         self._resources_type = "local"
         self._instances = []
         log.info("Topology reset")
@@ -526,6 +532,13 @@ class Topology:
         if random_id:
             topology = self._randomize_id(topology)
 
+        errors = getTopologyValidationErrors(topology)
+        if errors:
+            print(errors)
+            print(VALIDATION_ERROR_MESSAGE)
+            if hasattr(sys, '_called_from_test'):
+                raise Exception
+
         return topology
 
     def _randomize_id(self, topology):
@@ -541,7 +554,7 @@ class Topology:
                 new_uuid = str(uuid.uuid4())
                 topology["topology"]["nodes"][key]["vm_id"] = new_uuid
                 if old_uuid:
-                    for path in glob.glob(os.path.join(self.project.filesDir(), "project-files", "*", old_uuid)):
+                    for path in glob.glob(os.path.join(glob.escape(self.project.filesDir()), "project-files", "*", old_uuid)):
                         new_path = path.replace(old_uuid, new_uuid)
                         shutil.move(path, new_path)
         return topology
@@ -566,6 +579,13 @@ class Topology:
 
         if "revision" in json_topology and json_topology["revision"] > TOPOLOGY_REVISION:
             raise ValueError("This topology is not supported by your version of GNS3 please use GNS3 {} or later".format(json_topology["version"]))
+
+        errors = getTopologyValidationErrors(json_topology)
+        if errors:
+            print(errors)
+            print(VALIDATION_ERROR_MESSAGE)
+            if hasattr(sys, '_called_from_test'):
+                raise Exception
 
         if "project_id" in json_topology:
             self._project.setId(json_topology["project_id"])
@@ -622,6 +642,8 @@ class Topology:
             for topology_server in servers:
                 if "local" in topology_server and topology_server["local"]:
                     self._servers[topology_server["id"]] = server_manager.localServer()
+                if "vm" in topology_server and topology_server["vm"]:
+                    self._servers[topology_server["id"]] = server_manager.vmServer()
                 elif "cloud" in topology_server and topology_server["cloud"]:
                     self._servers[topology_server["id"]] = server_manager.anyCloudServer()
                 else:
@@ -848,18 +870,40 @@ class Topology:
                             break
 
                     if source_port and destination_port:
-                        view.addLink(source_node, source_port, destination_node, destination_port)
-
-        # Auto start
-        if self._auto_start and hasattr(node, "start"):
-            node.start()
+                        link = view.addLink(source_node, source_port, destination_node, destination_port)
+                        callback = partial(self._linkCreatedSlot, topology)
+                        link.add_link_signal.connect(callback)
 
         # We save at the end of initialization process in order to upgrade old topologies
         if len(topology["topology"]["nodes"]) == len(self._initialized_nodes):
+            self._autoStart(topology)
+
             self._load_images(topology)
             if "project_id" not in topology:
                 log.info("Saving converted topology...")
                 main_window.saveProject(self._project.topologyFile())
+
+    def _linkCreatedSlot(self, topology, link_id):
+        """
+        Called when a link is successfuly created
+        """
+        self._initialized_links.append(link_id)
+        if (len(topology["topology"].get("links", [])) == len(self._initialized_links)):
+            self._autoStart(topology)
+
+    def _autoStart(self, topology):
+        """
+        If everything is created auto start the topology
+        """
+        if (len(topology["topology"].get("links", [])) == len(self._initialized_links)) and (len(topology["topology"]["nodes"]) == len(self._initialized_nodes)):
+            # Auto start
+            if self._auto_start:
+                log.info("Auto start nodes")
+                for initialized_node in self._initialized_nodes:
+                    initialized_node = self.getNode(initialized_node)
+                    if hasattr(initialized_node, "start"):
+                        log.info("Auto start node %s", initialized_node.name())
+                        initialized_node.start()
 
     def _createPortLabel(self, node, label_info):
         """

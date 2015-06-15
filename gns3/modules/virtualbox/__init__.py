@@ -23,15 +23,15 @@ import os
 import sys
 import shutil
 
-from gns3.qt import QtCore, QtGui, QtWidgets
+from gns3.qt import QtCore, QtWidgets
 from gns3.local_server_config import LocalServerConfig
 from gns3.local_config import LocalConfig
 
 from ..module import Module
 from ..module_error import ModuleError
 from .virtualbox_vm import VirtualBoxVM
-from .settings import VBOX_SETTINGS, VBOX_SETTING_TYPES
-from .settings import VBOX_VM_SETTINGS, VBOX_VM_SETTING_TYPES
+from .settings import VBOX_SETTINGS
+from .settings import VBOX_VM_SETTINGS
 
 import logging
 log = logging.getLogger(__name__)
@@ -50,6 +50,9 @@ class VirtualBox(Module):
         self._virtualbox_vms = {}
         self._nodes = []
 
+        self.configChangedSlot()
+
+    def configChangedSlot(self):
         # load the settings
         self._loadSettings()
         self._loadVirtualBoxVMs()
@@ -83,21 +86,7 @@ class VirtualBox(Module):
         Loads the settings from the server settings file.
         """
 
-        local_config = LocalConfig.instance()
-
-        # restore the VirtualBox settings from QSettings (for backward compatibility)
-        legacy_settings = {}
-        settings = QtCore.QSettings()
-        settings.beginGroup(self.__class__.__name__)
-        for name in VBOX_SETTINGS.keys():
-            if settings.contains(name):
-                legacy_settings[name] = settings.value(name, type=VBOX_SETTING_TYPES[name])
-        settings.remove("")
-        settings.endGroup()
-
-        if legacy_settings:
-            local_config.saveSectionSettings(self.__class__.__name__, legacy_settings)
-        self._settings = local_config.loadSectionSettings(self.__class__.__name__, VBOX_SETTINGS)
+        self._settings = LocalConfig.instance().loadSectionSettings(self.__class__.__name__, VBOX_SETTINGS)
 
         if not os.path.exists(self._settings["vboxmanage_path"]):
             self._settings["vboxmanage_path"] = self._findVBoxManage(self)
@@ -129,29 +118,7 @@ class VirtualBox(Module):
         Load the VirtualBox VMs from the client settings file.
         """
 
-        local_config = LocalConfig.instance()
-
-        # restore the VirtualBox settings from QSettings (for backward compatibility)
-        virtualbox_vms = []
-        # load the settings
-        settings = QtCore.QSettings()
-        settings.beginGroup("VirtualBoxVMs")
-        # load the VMs
-        size = settings.beginReadArray("VM")
-        for index in range(0, size):
-            settings.setArrayIndex(index)
-            vm = {}
-            for setting_name, default_value in VBOX_VM_SETTINGS.items():
-                vm[setting_name] = settings.value(setting_name, default_value, VBOX_VM_SETTING_TYPES[setting_name])
-            virtualbox_vms.append(vm)
-        settings.endArray()
-        settings.remove("")
-        settings.endGroup()
-
-        if virtualbox_vms:
-            local_config.saveSectionSettings(self.__class__.__name__, {"vms": virtualbox_vms})
-
-        settings = local_config.settings()
+        settings = LocalConfig.instance().settings()
         if "vms" in settings.get(self.__class__.__name__, {}):
             for vm in settings[self.__class__.__name__]["vms"]:
                 vmname = vm.get("vmname")
@@ -171,8 +138,8 @@ class VirtualBox(Module):
         Saves the VirtualBox VMs to the client settings file.
         """
 
-        # save the settings
-        LocalConfig.instance().saveSectionSettings(self.__class__.__name__, {"vms": list(self._virtualbox_vms.values())})
+        self._settings["vms"] = list(self._virtualbox_vms.values())
+        self._saveSettings()
 
     def virtualBoxVMs(self):
         """
@@ -288,7 +255,7 @@ class VirtualBox(Module):
             for other_node in self._nodes:
                 if other_node.settings()["vmname"] == self._virtualbox_vms[vm]["vmname"] and \
                         (self._virtualbox_vms[vm]["server"] == "local" and other_node.server().isLocal() or self._virtualbox_vms[vm]["server"] == other_node.server().host):
-                    raise ModuleError("Sorry a VirtualBox VM that is not a linked base can only be used once in your topology")
+                    raise ModuleError("Sorry a VirtualBox VM can only be used once in your topology (this will change in future versions)")
         elif node.project().temporary():
             raise ModuleError("Sorry, VirtualBox linked clones are not supported in temporary projects")
 
@@ -342,7 +309,6 @@ class VirtualBox(Module):
                 {"class": VirtualBoxVM.__name__,
                  "name": vbox_vm["vmname"],
                  "server": vbox_vm["server"],
-                 "categories": VirtualBoxVM.categories(),
                  "default_symbol": vbox_vm["default_symbol"],
                  "hover_symbol": vbox_vm["hover_symbol"],
                  "categories": [vbox_vm["category"]]}

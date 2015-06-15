@@ -19,14 +19,14 @@
 QEMU module implementation.
 """
 
-from gns3.qt import QtCore, QtGui, QtWidgets
+from gns3.qt import QtWidgets
 from gns3.local_config import LocalConfig
 
 from ..module import Module
 from ..module_error import ModuleError
 from .qemu_vm import QemuVM
-from .settings import QEMU_SETTINGS, QEMU_SETTING_TYPES
-from .settings import QEMU_VM_SETTINGS, QEMU_VM_SETTING_TYPES
+from .settings import QEMU_SETTINGS
+from .settings import QEMU_VM_SETTINGS
 
 import logging
 log = logging.getLogger(__name__)
@@ -45,6 +45,9 @@ class Qemu(Module):
         self._qemu_vms = {}
         self._nodes = []
 
+        self.configChangedSlot()
+
+    def configChangedSlot(self):
         # load the settings
         self._loadSettings()
         self._loadQemuVMs()
@@ -54,21 +57,7 @@ class Qemu(Module):
         Loads the settings from the persistent settings file.
         """
 
-        local_config = LocalConfig.instance()
-
-        # restore the Qemu settings from QSettings (for backward compatibility)
-        legacy_settings = {}
-        settings = QtCore.QSettings()
-        settings.beginGroup(self.__class__.__name__)
-        for name in QEMU_SETTINGS.keys():
-            if settings.contains(name):
-                legacy_settings[name] = settings.value(name, type=QEMU_SETTING_TYPES[name])
-        settings.remove("")
-        settings.endGroup()
-
-        if legacy_settings:
-            local_config.saveSectionSettings(self.__class__.__name__, legacy_settings)
-        self._settings = local_config.loadSectionSettings(self.__class__.__name__, QEMU_SETTINGS)
+        self._settings = LocalConfig.instance().loadSectionSettings(self.__class__.__name__, QEMU_SETTINGS)
 
         # keep the config file sync
         self._saveSettings()
@@ -86,29 +75,7 @@ class Qemu(Module):
         Load the QEMU VMs from the persistent settings file.
         """
 
-        local_config = LocalConfig.instance()
-
-        # restore the Qemu settings from QSettings (for backward compatibility)
-        qemu_vms = []
-        # load the settings
-        settings = QtCore.QSettings()
-        settings.beginGroup("QemuVMs")
-        # load the QEMU VMs
-        size = settings.beginReadArray("vm")
-        for index in range(0, size):
-            settings.setArrayIndex(index)
-            vm = {}
-            for setting_name, default_value in QEMU_VM_SETTINGS.items():
-                vm[setting_name] = settings.value(setting_name, default_value, QEMU_VM_SETTING_TYPES[setting_name])
-            qemu_vms.append(vm)
-        settings.endArray()
-        settings.remove("")
-        settings.endGroup()
-
-        if qemu_vms:
-            local_config.saveSectionSettings(self.__class__.__name__, {"vms": qemu_vms})
-
-        settings = local_config.settings()
+        settings = LocalConfig.instance().settings()
         if "vms" in settings.get(self.__class__.__name__, {}):
             for vm in settings[self.__class__.__name__]["vms"]:
                 name = vm.get("name")
@@ -128,8 +95,8 @@ class Qemu(Module):
         Saves the QEMU VMs to the persistent settings file.
         """
 
-        # save the settings
-        LocalConfig.instance().saveSectionSettings(self.__class__.__name__, {"vms": list(self._qemu_vms.values())})
+        self._settings["vms"] = list(self._qemu_vms.values())
+        self._saveSettings()
 
     def qemuVMs(self):
         """
@@ -264,6 +231,16 @@ class Qemu(Module):
         """
 
         server.get("/qemu/binaries", callback)
+
+    def getQemuImgBinariesFromServer(self, server, callback):
+        """
+        Gets the QEMU-img binaries list from a server.
+
+        :param server: server to send the request to
+        :param callback: callback for the reply from the server
+        """
+
+        server.get(r"/qemu/img-binaries", callback)
 
     @staticmethod
     def getNodeClass(name):

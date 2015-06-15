@@ -208,25 +208,6 @@ GENERAL_SETTINGS = {
     "debug_level": 0,
 }
 
-GENERAL_SETTING_TYPES = {
-    "style": str,
-    "auto_launch_project_dialog": bool,
-    "auto_screenshot": bool,
-    "check_for_update": bool,
-    "last_check_for_update": int,
-    "slow_device_start_all": int,
-    "link_manual_mode": bool,
-    "telnet_console_command": str,
-    "serial_console_command": str,
-    "shell_console_command": str,
-    "auto_close_console": bool,
-    "bring_console_to_front": bool,
-    "delay_console_all": int,
-    "default_local_news": bool,
-    "hide_news_dock_widget": bool,
-    "debug_level": int,
-}
-
 GRAPHICS_VIEW_SETTINGS = {
     "scene_width": 2000,
     "scene_height": 1000,
@@ -236,17 +217,9 @@ GRAPHICS_VIEW_SETTINGS = {
     "default_label_color": "#000000",
 }
 
-GRAPHICS_VIEW_SETTING_TYPES = {
-    "scene_width": int,
-    "scene_height": int,
-    "draw_rectangle_selected_item": bool,
-    "draw_link_status_points": bool,
-    "default_label_font": str,
-    "default_label_color": str,
-}
-
 LOCAL_SERVER_SETTINGS = {
     "path": "",
+    "ubridge_path": "",
     "host": DEFAULT_LOCAL_SERVER_HOST,
     "port": DEFAULT_LOCAL_SERVER_PORT,
     "images_path": DEFAULT_IMAGES_PATH,
@@ -254,25 +227,11 @@ LOCAL_SERVER_SETTINGS = {
     "report_errors": True,
     "auto_start": True,
     "allow_console_from_anywhere": False,
+    "auth": True,
     "console_start_port_range": 2001,
     "console_end_port_range": 5000,
     "udp_start_port_range": 10000,
     "udp_end_port_range": 20000,
-}
-
-LOCAL_SERVER_SETTING_TYPES = {
-    "path": str,
-    "host": str,
-    "port": int,
-    "images_path": str,
-    "projects_path": str,
-    "report_errors": bool,
-    "auto_start": bool,
-    "allow_console_from_anywhere": bool,
-    "console_start_port_range": int,
-    "console_end_port_range": int,
-    "udp_start_port_range": int,
-    "udp_end_port_range": int,
 }
 
 PACKET_CAPTURE_SETTINGS = {
@@ -281,10 +240,15 @@ PACKET_CAPTURE_SETTINGS = {
     "packet_capture_analyzer_command": DEFAULT_PACKET_CAPTURE_ANALYZER_COMMAND,
 }
 
-PACKET_CAPTURE_SETTING_TYPES = {
-    "packet_capture_reader_command": str,
-    "command_auto_start": bool,
-    "packet_capture_analyzer_command": str,
+GNS3_VM_SETTINGS = {
+    "auto_start": False,
+    "auto_stop": True,
+    "headless": True,
+    "vmname": "GNS3 VM",
+    "vmx_path": "",
+    "server_host": "",
+    "server_port": 8000,
+    "virtualization": "VMware"
 }
 
 ENABLE_CLOUD = False

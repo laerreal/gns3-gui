@@ -23,15 +23,15 @@ import sys
 import os
 import shutil
 
-from gns3.qt import QtCore, QtGui, QtWidgets
+from gns3.qt import QtCore, QtWidgets
 from gns3.local_server_config import LocalServerConfig
 from gns3.local_config import LocalConfig
 
 from ..module import Module
 from ..module_error import ModuleError
 from .iou_device import IOUDevice
-from .settings import IOU_SETTINGS, IOU_SETTING_TYPES
-from .settings import IOU_DEVICE_SETTINGS, IOU_DEVICE_SETTING_TYPES
+from .settings import IOU_SETTINGS
+from .settings import IOU_DEVICE_SETTINGS
 
 import logging
 log = logging.getLogger(__name__)
@@ -51,6 +51,9 @@ class IOU(Module):
         self._iou_devices = {}
         self._iou_images_cache = {}
 
+        self.configChangedSlot()
+
+    def configChangedSlot(self):
         # load the settings
         self._loadSettings()
         self._loadIOUDevices()
@@ -60,24 +63,7 @@ class IOU(Module):
         Loads the settings from the persistent settings file.
         """
 
-        local_config = LocalConfig.instance()
-
-        # restore the IOU settings from QSettings (for backward compatibility)
-        legacy_settings = {}
-        settings = QtCore.QSettings()
-        settings.beginGroup(self.__class__.__name__)
-        for name in IOU_SETTINGS.keys():
-            if settings.contains(name):
-                legacy_settings[name] = settings.value(name, type=IOU_SETTING_TYPES[name])
-        if "iourc" in legacy_settings:
-            legacy_settings["iourc_path"] = legacy_settings["iourc"]
-            del legacy_settings["iourc"]
-        settings.remove("")
-        settings.endGroup()
-
-        if legacy_settings:
-            local_config.saveSectionSettings(self.__class__.__name__, legacy_settings)
-        self._settings = local_config.loadSectionSettings(self.__class__.__name__, IOU_SETTINGS)
+        self._settings = LocalConfig.instance().loadSectionSettings(self.__class__.__name__, IOU_SETTINGS)
 
         if sys.platform.startswith("linux") and not os.path.exists(self._settings["iouyap_path"]):
             iouyap_path = shutil.which("iouyap")
@@ -109,29 +95,7 @@ class IOU(Module):
         Load the IOU devices from the persistent settings file.
         """
 
-        local_config = LocalConfig.instance()
-
-        # restore the VirtualBox settings from QSettings (for backward compatibility)
-        iou_devices = []
-        # load the settings
-        settings = QtCore.QSettings()
-        settings.beginGroup("IOUDevices")
-        # load the IOU devices
-        size = settings.beginReadArray("iou_device")
-        for index in range(0, size):
-            settings.setArrayIndex(index)
-            device = {}
-            for setting_name, default_value in IOU_DEVICE_SETTINGS.items():
-                device[setting_name] = settings.value(setting_name, default_value, IOU_DEVICE_SETTING_TYPES[setting_name])
-            iou_devices.append(device)
-        settings.endArray()
-        settings.remove("")
-        settings.endGroup()
-
-        if iou_devices:
-            local_config.saveSectionSettings(self.__class__.__name__, {"devices": iou_devices})
-
-        settings = local_config.settings()
+        settings = LocalConfig.instance().settings()
         if "devices" in settings.get(self.__class__.__name__, {}):
             for device in settings[self.__class__.__name__]["devices"]:
                 name = device.get("name")
@@ -141,6 +105,9 @@ class IOU(Module):
                     continue
                 device_settings = IOU_DEVICE_SETTINGS.copy()
                 device_settings.update(device)
+                if "initial_config" in device_settings:
+                    # transfer initial-config (post version 1.4) to startup-config
+                    device_settings["startup_config"] = device_settings["initial_config"]
                 self._iou_devices[key] = device_settings
 
         # keep things sync
@@ -151,8 +118,8 @@ class IOU(Module):
         Saves the IOU devices to the persistent settings file.
         """
 
-        # save the settings
-        LocalConfig.instance().saveSectionSettings(self.__class__.__name__, {"devices": list(self._iou_devices.values())})
+        self._settings["devices"] = list(self._iou_devices.values())
+        self._saveSettings()
 
     def addNode(self, node):
         """

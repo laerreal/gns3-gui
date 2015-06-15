@@ -20,12 +20,13 @@ Thread to wait for an IOS image to be decompressed.
 """
 
 import zipfile
+import zlib
 
 from gns3.qt import QtCore
 from .decompress_ios import decompressIOS
 
 
-class DecompressIOSThread(QtCore.QThread):
+class DecompressIOSWorker(QtCore.QObject):
 
     """
     Thread to decompress an IOS image.
@@ -36,15 +37,15 @@ class DecompressIOSThread(QtCore.QThread):
 
     # signals to update the progress dialog.
     error = QtCore.pyqtSignal(str, bool)
-    completed = QtCore.pyqtSignal()
-    update = QtCore.pyqtSignal(int)
+    finished = QtCore.pyqtSignal()
+    updated = QtCore.pyqtSignal(int)
 
     def __init__(self, ios_image, destination_file):
 
         super().__init__()
+        self._is_running = False
         self._ios_image = ios_image
         self._destination_file = destination_file
-        self._is_running = False
 
     def run(self):
         """
@@ -54,19 +55,19 @@ class DecompressIOSThread(QtCore.QThread):
         self._is_running = True
         try:
             decompressIOS(self._ios_image, self._destination_file)
-        except zipfile.BadZipFile as e:
-             self.error.emit("File {} is corrupted {}".format(self._ios_image, e), True)
-             return
+        except (zipfile.BadZipFile, zlib.error) as e:
+            self.error.emit("File {} is corrupted {}".format(self._ios_image, e), True)
+            return
         except (OSError, MemoryError) as e:
             self.error.emit("Could not decompress {}: {}".format(self._ios_image, e), True)
             return
 
         # IOS image has successfully been decompressed
-        self.completed.emit()
+        self.finished.emit()
 
-    def stop(self):
+    def cancel(self):
         """
-        Stops this thread as soon as possible.
+        Cancel this worker.
         """
 
         self._is_running = False

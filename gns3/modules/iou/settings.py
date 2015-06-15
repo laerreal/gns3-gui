@@ -34,13 +34,6 @@ IOU_SETTINGS = {
 if not sys.platform.startswith("linux"):
     IOU_SETTINGS["use_local_server"] = False
 
-IOU_SETTING_TYPES = {
-    "iourc_path": str,
-    "iouyap_path": str,
-    "license_check": bool,
-    "use_local_server": bool,
-}
-
 IOU_DEVICE_SETTINGS = {
     "name": "",
     "path": "",
@@ -48,27 +41,12 @@ IOU_DEVICE_SETTINGS = {
     "hover_symbol": ":/symbols/multilayer_switch.selected.svg",
     "category": Node.routers,
     "image": "",
-    "initial_config": "",
+    "startup_config": "",
+    "private_config": "",
     "use_default_iou_values": True,
     "ram": 256,
     "nvram": 128,
     "ethernet_adapters": 2,
     "serial_adapters": 2,
     "server": "local"
-}
-
-IOU_DEVICE_SETTING_TYPES = {
-    "name": str,
-    "path": str,
-    "default_symbol": str,
-    "hover_symbol": str,
-    "category": int,
-    "image": str,
-    "initial_config": str,
-    "use_default_iou_values": bool,
-    "ram": int,
-    "nvram": int,
-    "ethernet_adapters": int,
-    "serial_adapters": int,
-    "server": str
 }

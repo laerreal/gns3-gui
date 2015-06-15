@@ -27,13 +27,13 @@ import functools
 from .qt import QtCore, QtGui, QtNetwork, QtWidgets
 from .servers import Servers
 from .items.node_item import NodeItem
-from .dialogs.node_configurator_dialog import NodeConfiguratorDialog
+from .dialogs.node_properties_dialog import NodePropertiesDialog
 from .link import Link
 from .node import Node
 from .modules import MODULES
 from .modules.builtin.cloud import Cloud
 from .modules.module_error import ModuleError
-from .settings import GRAPHICS_VIEW_SETTINGS, GRAPHICS_VIEW_SETTING_TYPES
+from .settings import GRAPHICS_VIEW_SETTINGS
 from .topology import Topology
 from .ports.port import Port
 from .dialogs.style_editor_dialog import StyleEditorDialog
@@ -100,6 +100,12 @@ class GraphicsView(QtWidgets.QGraphicsView):
         self.setTransformationAnchor(QtWidgets.QGraphicsView.AnchorUnderMouse)
         self.setResizeAnchor(QtWidgets.QGraphicsView.AnchorViewCenter)
 
+        # default directories for QFileDialog
+        self._import_configs_from_dir = QtCore.QStandardPaths.writableLocation(QtCore.QStandardPaths.DocumentsLocation)
+        self._import_config_dir = ""
+        self._export_configs_to_dir = QtCore.QStandardPaths.writableLocation(QtCore.QStandardPaths.DocumentsLocation)
+        self._export_config_dir = ""
+
         self._local_addresses = ['0.0.0.0', '127.0.0.1', 'localhost', '::1', '0:0:0:0:0:0:0:1', '::', QtNetwork.QHostInfo.localHostName()]
 
     def reset(self):
@@ -133,21 +139,7 @@ class GraphicsView(QtWidgets.QGraphicsView):
         Loads the settings from the persistent settings file.
         """
 
-        local_config = LocalConfig.instance()
-        # restore the graphics view settings from QSettings (for backward compatibility)
-        legacy_settings = {}
-        settings = QtCore.QSettings()
-        settings.beginGroup(self.__class__.__name__)
-        for name in GRAPHICS_VIEW_SETTINGS.keys():
-            if settings.contains(name):
-                legacy_settings[name] = settings.value(name, type=GRAPHICS_VIEW_SETTING_TYPES[name])
-        settings.remove("")
-        settings.endGroup()
-
-        if legacy_settings:
-            local_config.saveSectionSettings(self.__class__.__name__, legacy_settings)
-
-        self._settings = local_config.loadSectionSettings(self.__class__.__name__, GRAPHICS_VIEW_SETTINGS)
+        self._settings = LocalConfig.instance().loadSectionSettings(self.__class__.__name__, GRAPHICS_VIEW_SETTINGS)
 
     def settings(self):
         """
@@ -252,6 +244,7 @@ class GraphicsView(QtWidgets.QGraphicsView):
         :param source_port: source Port instance
         :param destination_node: destination Node instance
         :param destination_port: destination Port instance
+        :returns: Link
         """
 
         link = Link(source_node, source_port, destination_node, destination_port)
@@ -261,6 +254,7 @@ class GraphicsView(QtWidgets.QGraphicsView):
         if self._topology.addLink(link):
             link.add_link_signal.connect(self.addLinkSlot)
             link.delete_link_signal.connect(self.deleteLinkSlot)
+        return link
 
     def addLinkSlot(self, link_id):
         """
@@ -362,6 +356,9 @@ class GraphicsView(QtWidgets.QGraphicsView):
             if not source_port.isFree():
                 QtWidgets.QMessageBox.critical(self, "Connection", "Port {} isn't free".format(source_port.name()))
                 return
+            if not source_port.isHotPluggable() and source_item.node().status() == Node.started:
+                QtWidgets.QMessageBox.critical(self, "Connection", "A new link cannot be added because {} is running".format(source_item.node().name()))
+                return
             if source_port.linkType() == "Serial":
                 self._newlink = SerialLinkItem(source_item, source_port, self.mapToScene(event.pos()), None, adding_flag=True)
             else:
@@ -382,6 +379,9 @@ class GraphicsView(QtWidgets.QGraphicsView):
                 return
             if not destination_port.isFree():
                 QtWidgets.QMessageBox.critical(self, "Connection", "Port {} isn't free".format(destination_port.name()))
+                return
+            if not destination_port.isHotPluggable() and destination_item.node().status() == Node.started:
+                QtWidgets.QMessageBox.critical(self, "Connection", "A new link cannot be added because {} is running".format(destination_item.node().name()))
                 return
             if source_port.isStub() or destination_port.isStub():
                 pass
@@ -598,26 +598,35 @@ class GraphicsView(QtWidgets.QGraphicsView):
         """
 
         item = self.itemAt(event.pos())
-        if not self._adding_link and isinstance(item, NodeItem) and item.node().initialized():
-            item.setSelected(True)
-            if item.node().status() == Node.stopped:
-                self.configureSlot()
-            else:
-                self.consoleFromItems(self.scene().selectedItems())
+
+        if not self._adding_link:
+            if isinstance(item, NodeItem) and item.node().initialized():
+                item.setSelected(True)
+                if item.node().status() == Node.stopped:
+                    self.configureSlot()
+                    return
+                else:
+                    self.consoleFromItems(self.scene().selectedItems())
+                    return
+            elif isinstance(item, NoteItem) and isinstance(item.parentItem(), NodeItem):
+                if item.parentItem().node().initialized():
+                    item.parentItem().setSelected(True)
+                    self.changeHostnameActionSlot()
+                return
         else:
             super().mouseDoubleClickEvent(event)
 
     def configureSlot(self, items=None):
         """
-        Opens the node configurator.
+        Opens the node properties dialog.
         """
 
         if not items:
             items = self.scene().selectedItems()
-        node_configurator = NodeConfiguratorDialog(items, self._main_window)
-        node_configurator.setModal(True)
-        node_configurator.show()
-        node_configurator.exec_()
+        node_properties = NodePropertiesDialog(items, self._main_window)
+        node_properties.setModal(True)
+        node_properties.show()
+        node_properties.exec_()
         for item in items:
             item.setSelected(False)
 
@@ -652,7 +661,7 @@ class GraphicsView(QtWidgets.QGraphicsView):
             if event.keyboardModifiers() == QtCore.Qt.ShiftModifier:
                 max_nodes_per_line = 10  # max number of nodes on a single line
                 offset = 100  # spacing between elements
-                integer, ok = QtWidgets.QInputDialog.getInteger(self, "Nodes", "Number of nodes:", 2, 1, 100, 1)
+                integer, ok = QtWidgets.QInputDialog.getInt(self, "Nodes", "Number of nodes:", 2, 1, 100, 1)
                 if ok:
                     for node_number in range(integer):
                         node_item = self.createNode(node_data, event.pos())
@@ -718,6 +727,12 @@ class GraphicsView(QtWidgets.QGraphicsView):
             change_symbol_action.setIcon(QtGui.QIcon(':/icons/node_conception.svg'))
             change_symbol_action.triggered.connect(self.changeSymbolActionSlot)
             menu.addAction(change_symbol_action)
+
+            # Action: Show in file manager
+            show_in_file_manager_action = QtWidgets.QAction("Show in file manager", menu)
+            show_in_file_manager_action.setIcon(QtGui.QIcon(':/icons/open.svg'))
+            show_in_file_manager_action.triggered.connect(self.showInFileManagerSlot)
+            menu.addAction(show_in_file_manager_action)
 
         if True in list(map(lambda item: isinstance(item, NodeItem) and hasattr(item.node(), "console"), items)):
             console_action = QtWidgets.QAction("Console", menu)
@@ -923,6 +938,24 @@ class GraphicsView(QtWidgets.QGraphicsView):
             dialog.show()
             dialog.exec_()
 
+    def showInFileManagerSlot(self):
+        """
+        Slot to receive events from the show in file manager action in the
+        contextual menu.
+        """
+
+        for item in self.scene().selectedItems():
+            if isinstance(item, NodeItem) and item.node().initialized():
+                node = item.node()
+                vm_dir = node.project().filesDir()  # FIXME: get the VM directory instead
+                if os.path.exists(vm_dir):
+                    if QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(vm_dir)) is False:
+                        QtWidgets.QMessageBox.critical(self, "Show in file manager", "Failed to open {}".format(vm_dir))
+                        break
+                else:
+                    # TODO: this is a remote server, show an info box
+                    pass
+
     def consoleToNode(self, node, aux=False):
         """
         Start a console application to connect to a node.
@@ -1049,24 +1082,29 @@ class GraphicsView(QtWidgets.QGraphicsView):
             return
 
         if len(items) > 1:
-            path = QtWidgets.QFileDialog.getExistingDirectory(self, "Import directory", ".", QtWidgets.QFileDialog.ShowDirsOnly)
+            path = QtWidgets.QFileDialog.getExistingDirectory(self, "Import directory", self._import_configs_from_dir, QtWidgets.QFileDialog.ShowDirsOnly)
             if path:
+                self._import_configs_from_dir = os.path.dirname(path)
                 for item in items:
                     item.node().importConfigFromDirectory(path)
         else:
+            if not self._import_config_dir:
+                self._import_config_dir = self._main_window.project().filesDir()
+
             item = items[0]
             path, _ = QtWidgets.QFileDialog.getOpenFileName(self,
                                                             "Import config",
-                                                            ".",
+                                                            self._import_config_dir,
                                                             "All files (*.*);;Config files (*.cfg)",
                                                             "Config files (*.cfg)")
 
             if path:
+                self._import_config_dir = os.path.dirname(path)
                 item.node().importConfig(path)
             if hasattr(item.node(), "importPrivateConfig"):
                 path, _ = QtWidgets.QFileDialog.getOpenFileName(self,
                                                                 "Import private-config",
-                                                                ".",
+                                                                self._import_config_dir,
                                                                 "All files (*.*);;Config files (*.cfg)",
                                                                 "Config files (*.cfg)")
                 if path:
@@ -1087,19 +1125,24 @@ class GraphicsView(QtWidgets.QGraphicsView):
             return
 
         if len(items) > 1:
-            path = QtWidgets.QFileDialog.getExistingDirectory(self, "Export directory", ".", QtWidgets.QFileDialog.ShowDirsOnly)
+            path = QtWidgets.QFileDialog.getExistingDirectory(self, "Export directory", self._export_configs_to_dir, QtWidgets.QFileDialog.ShowDirsOnly)
             if path:
+                self._export_configs_to_dir = os.path.dirname(path)
                 for item in items:
                     item.node().exportConfigToDirectory(path)
         else:
-            item = items[0]
+            if not self._export_config_dir:
+                self._export_config_dir = self._main_window.project().filesDir()
 
+            item = items[0]
             if hasattr(item.node(), "importPrivateConfig"):
-                config_path = QtWidgets.QFileDialog.getSaveFileName(self, "Export startup-config")
-                private_config_path = QtWidgets.QFileDialog.getSaveFileName(self, "Export private-config")
+                config_path, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Export startup-config", self._export_config_dir)
+                self._export_config_dir = os.path.dirname(config_path)
+                private_config_path, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Export private-config", self._export_config_dir)
                 item.node().exportConfig(config_path, private_config_path)
             else:
-                config_path = QtWidgets.QFileDialog.getSaveFileName(self, "Export config")
+                config_path, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Export config", self._export_config_dir)
+                self._export_config_dir = os.path.dirname(config_path)
                 item.node().exportConfig(config_path)
 
     def saveConfigActionSlot(self):
@@ -1149,11 +1192,6 @@ class GraphicsView(QtWidgets.QGraphicsView):
         item = items[0]
         if isinstance(item, NodeItem) and hasattr(item.node(), "idlepc") and item.node().initialized():
             router = item.node()
-            # question = QtWidgets.QMessageBox.question(self, "Auto Idle-PC", "Would you like to automatically find a suitable Idle-PC value (but not optimal)?", QtWidgets.QMessageBox.Yes, QtWidgets.QMessageBox.No)
-
-            # if question == QtWidgets.QMessageBox.Yes:
-            #    router.computeAutoIdlepc(self._autoIdlepcCallback)
-            # else:
             router.computeIdlepcs(self._idlepcCallback)
 
     def _idlepcCallback(self, result, error=False, context={}, **kwargs):
@@ -1201,10 +1239,16 @@ class GraphicsView(QtWidgets.QGraphicsView):
             idlepc = result["idlepc"]
             log.info("{} has received the auto idle-pc value: {}".format(router.name(), idlepc))
             router.setIdlepc(idlepc)
-            # apply the idle-pc to templates with the same IOS image
+            # apply Idle-PC to all routers with the same IOS image
             ios_image = os.path.basename(router.settings()["image"])
+            for node in Topology.instance().nodes():
+                if hasattr(node, "idlepc") and node.settings()["image"] == ios_image:
+                    node.setIdlepc(idlepc)
+            # apply the idle-pc to templates with the same IOS image
             router.module().updateImageIdlepc(ios_image, idlepc)
-            QtWidgets.QMessageBox.information(self, "Auto Idle-PC", "Idle-PC value {} has been applied on {}".format(idlepc, router.name()))
+        QtWidgets.QMessageBox.information(self, "Auto Idle-PC", "Idle-PC value {} has been applied on {} and all routers with IOS image {}".format(idlepc,
+                                                                                                                                                   router.name(),
+                                                                                                                                                   ios_image))
 
     def duplicateActionSlot(self):
         """
@@ -1365,6 +1409,11 @@ class GraphicsView(QtWidgets.QGraphicsView):
                 server = node_module.allocateServer(node_class)
             elif node_data["server"] == "local":
                 server = Servers.instance().localServer()
+            elif node_data["server"] == "vm":
+                server = Servers.instance().vmServer()
+                if server is None:
+                    QtWidgets.QMessageBox.critical(self, "GNS3 VM", "The GNS3 VM is not running")
+                    return
             elif node_data["server"] == "cloud":
                 server = Servers.instance().anyCloudServer()
             else:

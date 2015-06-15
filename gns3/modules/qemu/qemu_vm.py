@@ -55,7 +55,11 @@ class QemuVM(VM):
                           "console": None,
                           "adapters": QEMU_VM_SETTINGS["adapters"],
                           "adapter_type": QEMU_VM_SETTINGS["adapter_type"],
+                          "mac_address": QEMU_VM_SETTINGS["mac_address"],
                           "legacy_networking": QEMU_VM_SETTINGS["legacy_networking"],
+                          "platform": QEMU_VM_SETTINGS["platform"],
+                          "acpi_shutdown": QEMU_VM_SETTINGS["acpi_shutdown"],
+                          "kvm": QEMU_VM_SETTINGS["kvm"],
                           "cpu_throttling": QEMU_VM_SETTINGS["cpu_throttling"],
                           "process_priority": QEMU_VM_SETTINGS["process_priority"],
                           "initrd": "",
@@ -76,6 +80,7 @@ class QemuVM(VM):
             new_port.setShortName(short_name)
             new_port.setAdapterNumber(adapter_number)
             new_port.setPortNumber(0)
+            new_port.setHotPluggable(False)
             self._ports.append(new_port)
             log.debug("Adapter {} has been added".format(adapter_name))
 
@@ -355,7 +360,7 @@ class QemuVM(VM):
         # for backward compatibility
         vm_id = node_info.get("qemu_id")
         if not vm_id:
-            vm_id = node_info["vm_id"]
+            vm_id = node_info.get("vm_id")
 
         # prepare the VM settings
         vm_settings = {}
@@ -435,7 +440,7 @@ class QemuVM(VM):
 
     def configPage(self):
         """
-        Returns the configuration page widget to be used by the node configurator.
+        Returns the configuration page widget to be used by the node properties dialog.
 
         :returns: QWidget object
         """

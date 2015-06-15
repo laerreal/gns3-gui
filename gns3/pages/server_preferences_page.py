@@ -23,14 +23,17 @@ import os
 import sys
 import re
 import uuid
-from gns3.qt import QtNetwork, QtWidgets, QtCore
+import shutil
+
+from gns3.qt import QtNetwork, QtWidgets
 from ..ui.server_preferences_page_ui import Ui_ServerPreferencesPageWidget
 from ..servers import Servers
+from ..gns3_vm import GNS3VM
 from ..topology import Topology
 from ..utils.message_box import MessageBox
 from ..utils.progress_dialog import ProgressDialog
 from ..utils.wait_for_connection_worker import WaitForConnectionWorker
-from ..settings import LOCAL_SERVER_SETTINGS
+from ..settings import LOCAL_SERVER_SETTINGS, GNS3_VM_SETTINGS
 
 
 class ServerPreferencesPage(QtWidgets.QWidget, Ui_ServerPreferencesPageWidget):
@@ -47,6 +50,7 @@ class ServerPreferencesPage(QtWidgets.QWidget, Ui_ServerPreferencesPageWidget):
 
         # connect the slots
         self.uiLocalServerToolButton.clicked.connect(self._localServerBrowserSlot)
+        self.uiUbridgeToolButton.clicked.connect(self._ubridgeBrowserSlot)
         self.uiAddRemoteServerPushButton.clicked.connect(self._remoteServerAddSlot)
         self.uiDeleteRemoteServerPushButton.clicked.connect(self._remoteServerDeleteSlot)
         self.uiRemoteServersTreeWidget.itemClicked.connect(self._remoteServerClickedSlot)
@@ -55,14 +59,16 @@ class ServerPreferencesPage(QtWidgets.QWidget, Ui_ServerPreferencesPageWidget):
         self.uiLocalServerAutoStartCheckBox.stateChanged.connect(self._useLocalServerAutoStartSlot)
         self.uiRemoteServerProtocolComboBox.currentIndexChanged.connect(self._remoteServerProtocolCurrentIndexSlot)
         self.uiRemoteServerSSHKeyPushButton.clicked.connect(self._remoteServerSSHKeyPushButtonSlot)
+        self.uiEnableVMCheckBox.stateChanged.connect(self._enableGNS3VMSlot)
+        self.uiVmwareRadioButton.clicked.connect(self._listVMwareVMsSlot)
+        self.uiVirtualBoxRadioButton.clicked.connect(self._listVirtualBoxVMsSlot)
 
         # load all available addresses
         for address in QtNetwork.QNetworkInterface.allAddresses():
             address_string = address.toString()
-            if address.protocol() == QtNetwork.QAbstractSocket.IPv6Protocol:
-                continue  # FIXME: finish IPv6 support (problem with ws4py)
+            #if address.protocol() == QtNetwork.QAbstractSocket.IPv6Protocol:
                 # we do not want the scope id when using an IPv6 address...
-                address.setScopeId("")
+                #address.setScopeId("")
             self.uiLocalServerHostComboBox.addItem(address_string, address.toString())
 
         # default is 127.0.0.1
@@ -72,13 +78,75 @@ class ServerPreferencesPage(QtWidgets.QWidget, Ui_ServerPreferencesPageWidget):
 
         self._remoteServerProtocolCurrentIndexSlot(0)
 
+    def _listVMwareVMsSlot(self):
+        """
+        Slot to refresh the VMware VMs list.
+        """
+
+        self._refreshVMList()
+
+    def _listVirtualBoxVMsSlot(self):
+        """
+        Slot to refresh the VirtualBox VMs list.
+        """
+
+        self._refreshVMList()
+
+    def _refreshVMList(self):
+        """
+        Refresh the list of VM available in VMware or VirtualBox.
+        """
+
+        if not Servers.instance().localServerIsRunning():
+            QtWidgets.QMessageBox.critical(self, "Local server", "{}".format("Local server is not running"))
+            return
+        server = Servers.instance().localServer()
+        if self.uiVmwareRadioButton.isChecked():
+            server.get("/vmware/vms", self._getVMsFromServerCallback)
+        elif self.uiVirtualBoxRadioButton.isChecked():
+            server.get("/virtualbox/vms", self._getVMsFromServerCallback)
+
+    def _getVMsFromServerCallback(self, result, error=False, **kwargs):
+        """
+        Callback for getVMsFromServer.
+
+        :param progress_dialog: QProgressDialog instance
+        :param result: server response
+        :param error: indicates an error (boolean)
+        """
+
+        if error:
+            QtWidgets.QMessageBox.critical(self, "VM List", "{}".format(result["message"]))
+        else:
+            self.uiVMListComboBox.clear()
+            for vm in result:
+                if self.uiVmwareRadioButton.isChecked():
+                    self.uiVMListComboBox.addItem(vm["vmname"], vm["vmx_path"])
+                else:
+                    self.uiVMListComboBox.addItem(vm["vmname"], "")
+            gns3_vm = GNS3VM.instance().settings()
+            index = self.uiVMListComboBox.findText(gns3_vm["vmname"])
+            if index != -1:
+                self.uiVMListComboBox.setCurrentIndex(index)
+
+    def _enableGNS3VMSlot(self, state):
+        """
+        Slot to enable or not the GNS3 VM settings.
+        """
+
+        if state:
+            self.uiGNS3VMSettingsGroupBox.setEnabled(True)
+        else:
+            self.uiGNS3VMSettingsGroupBox.setEnabled(False)
+
     def _remoteServerSSHKeyPushButtonSlot(self):
         """
         Slot to open a file browser and select an ssh key.
         """
 
         filter = ""
-        path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Select the SSH key", ".", filter)
+        ssh_dir = os.path.join(os.path.expanduser("~"), ".ssh")
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Select the SSH key", ssh_dir, filter)
         if not path:
             return
 
@@ -122,7 +190,7 @@ class ServerPreferencesPage(QtWidgets.QWidget, Ui_ServerPreferencesPageWidget):
         Slot to restore default settings
         """
 
-        self._populateWidgets(LOCAL_SERVER_SETTINGS)
+        self._populateWidgets(LOCAL_SERVER_SETTINGS, GNS3_VM_SETTINGS)
 
     def _localServerBrowserSlot(self):
         """
@@ -132,11 +200,28 @@ class ServerPreferencesPage(QtWidgets.QWidget, Ui_ServerPreferencesPageWidget):
         filter = ""
         if sys.platform.startswith("win"):
             filter = "Executable (*.exe);;All files (*.*)"
-        path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Select the local server", ".", filter)
+        server_path = shutil.which("gns3server")
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Select the local server", server_path, filter)
         if not path:
             return
 
         self.uiLocalServerPathLineEdit.setText(path)
+
+    def _ubridgeBrowserSlot(self):
+        """
+        Slot to open a file browser and select the ubridge executable path.
+        """
+
+        filter = ""
+        if sys.platform.startswith("win"):
+            filter = "Executable (*.exe);;All files (*.*)"
+
+        ubridge_path = shutil.which("ubridge")
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Select ubridge executable", ubridge_path, filter)
+        if not path:
+            return
+
+        self.uiUbridgePathLineEdit.setText(path)
 
     def _remoteServerClickedSlot(self, item, column):
         """
@@ -241,24 +326,45 @@ class ServerPreferencesPage(QtWidgets.QWidget, Ui_ServerPreferencesPageWidget):
             del self._remote_servers[item.server_id]
             self.uiRemoteServersTreeWidget.takeTopLevelItem(self.uiRemoteServersTreeWidget.indexOfTopLevelItem(item))
 
-    def _populateWidgets(self, settings):
+    def _populateWidgets(self, local_server_settings, gns3_vm_settings):
         """
         Populates the widgets with the settings.
 
-        :param settings: Local server settings
+        :param local_server_settings: Local server settings
+        :param gns3_vm_settings: GNS3 VM settings
         """
 
-        self.uiLocalServerPathLineEdit.setText(settings["path"])
-        index = self.uiLocalServerHostComboBox.findData(settings["host"])
+        # local server settings
+        self.uiLocalServerPathLineEdit.setText(local_server_settings["path"])
+        self.uiUbridgePathLineEdit.setText(local_server_settings["ubridge_path"])
+        index = self.uiLocalServerHostComboBox.findData(local_server_settings["host"])
         if index != -1:
             self.uiLocalServerHostComboBox.setCurrentIndex(index)
-        self.uiLocalServerPortSpinBox.setValue(settings["port"])
-        self.uiLocalServerAutoStartCheckBox.setChecked(settings["auto_start"])
-        self.uiConsoleConnectionsToAnyIPCheckBox.setChecked(settings["allow_console_from_anywhere"])
-        self.uiConsoleStartPortSpinBox.setValue(settings["console_start_port_range"])
-        self.uiConsoleEndPortSpinBox.setValue(settings["console_end_port_range"])
-        self.uiUDPStartPortSpinBox.setValue(settings["udp_start_port_range"])
-        self.uiUDPEndPortSpinBox.setValue(settings["udp_end_port_range"])
+        self.uiLocalServerPortSpinBox.setValue(local_server_settings["port"])
+        self.uiLocalServerAutoStartCheckBox.setChecked(local_server_settings["auto_start"])
+        self.uiLocalServerAuthCheckBox.setChecked(local_server_settings["auth"])
+        self.uiConsoleConnectionsToAnyIPCheckBox.setChecked(local_server_settings["allow_console_from_anywhere"])
+        self.uiConsoleStartPortSpinBox.setValue(local_server_settings["console_start_port_range"])
+        self.uiConsoleEndPortSpinBox.setValue(local_server_settings["console_end_port_range"])
+        self.uiUDPStartPortSpinBox.setValue(local_server_settings["udp_start_port_range"])
+        self.uiUDPEndPortSpinBox.setValue(local_server_settings["udp_end_port_range"])
+
+        # GNS3 VM settings
+        if gns3_vm_settings["auto_start"] and Servers.instance().localServerIsRunning():
+            self._refreshVMList()
+        self.uiEnableVMCheckBox.setChecked(gns3_vm_settings["auto_start"])
+        self.uiShutdownCheckBox.setChecked(gns3_vm_settings["auto_stop"])
+        index = self.uiVMListComboBox.findText(gns3_vm_settings["vmname"])
+        if index != -1:
+            self.uiVMListComboBox.setCurrentIndex(index)
+        else:
+            self.uiVMListComboBox.clear()
+            self.uiVMListComboBox.addItem(gns3_vm_settings["vmname"], gns3_vm_settings["vmx_path"])
+        if gns3_vm_settings["virtualization"] == "VMware":
+            self.uiVmwareRadioButton.setChecked(True)
+        elif gns3_vm_settings["virtualization"] == "VirtualBox":
+            self.uiVirtualBoxRadioButton.setChecked(True)
+        self.uiHeadlessCheckBox.setChecked(gns3_vm_settings["headless"])
 
     def loadPreferences(self):
         """
@@ -266,10 +372,12 @@ class ServerPreferencesPage(QtWidgets.QWidget, Ui_ServerPreferencesPageWidget):
         """
 
         servers = Servers.instance()
+        gns3_vm = GNS3VM.instance()
 
-        # load the local server preferences
+        # load the local server and GNS3 VM preferences
         local_server_settings = servers.localServerSettings()
-        self._populateWidgets(local_server_settings)
+        gns3_vm_settings = gns3_vm.settings()
+        self._populateWidgets(local_server_settings, gns3_vm_settings)
 
         # load remote server preferences
         self._remote_servers.clear()
@@ -302,10 +410,12 @@ class ServerPreferencesPage(QtWidgets.QWidget, Ui_ServerPreferencesPageWidget):
         # save the local server preferences
         new_settings = {}
         new_settings["path"] = self.uiLocalServerPathLineEdit.text()
+        new_settings["ubridge_path"] = self.uiUbridgePathLineEdit.text()
         new_settings["host"] = self.uiLocalServerHostComboBox.itemData(self.uiLocalServerHostComboBox.currentIndex())
         new_settings["port"] = self.uiLocalServerPortSpinBox.value()
         new_settings["auto_start"] = self.uiLocalServerAutoStartCheckBox.isChecked()
         new_settings["allow_console_from_anywhere"] = self.uiConsoleConnectionsToAnyIPCheckBox.isChecked()
+        new_settings["auth"] = self.uiLocalServerAuthCheckBox.isChecked()
         new_settings["console_start_port_range"] = self.uiConsoleStartPortSpinBox.value()
         new_settings["console_end_port_range"] = self.uiConsoleEndPortSpinBox.value()
         new_settings["udp_start_port_range"] = self.uiUDPStartPortSpinBox.value()
@@ -313,15 +423,17 @@ class ServerPreferencesPage(QtWidgets.QWidget, Ui_ServerPreferencesPageWidget):
         new_settings["images_path"] = current_settings["images_path"]
         new_settings["projects_path"] = current_settings["projects_path"]
         new_settings["report_errors"] = current_settings["report_errors"]
+        new_settings["user"] = current_settings["user"]
+        new_settings["password"] = current_settings["password"]
 
         if new_settings["console_end_port_range"] <= new_settings["console_start_port_range"]:
-            QtWidgets.QMessageBox.critical(self, "Local", "Invalid console port range from {} to {}".format(new_settings["console_start_port_range"],
-                                                                                                            new_settings["console_end_port_range"]))
+            QtWidgets.QMessageBox.critical(self, "Port range", "Invalid console port range from {} to {}".format(new_settings["console_start_port_range"],
+                                                                                                                 new_settings["console_end_port_range"]))
             return
 
         if new_settings["udp_end_port_range"] <= new_settings["udp_start_port_range"]:
-            QtWidgets.QMessageBox.critical(self, "Local", "Invalid UDP port range from {} to {}".format(new_settings["udp_start_port_range"],
-                                                                                                        new_settings["udp_end_port_range"]))
+            QtWidgets.QMessageBox.critical(self, "Port range", "Invalid UDP port range from {} to {}".format(new_settings["udp_start_port_range"],
+                                                                                                             new_settings["udp_end_port_range"]))
             return
 
         if new_settings["auto_start"]:
@@ -352,6 +464,20 @@ class ServerPreferencesPage(QtWidgets.QWidget, Ui_ServerPreferencesPageWidget):
         # save the remote server preferences
         servers.updateRemoteServers(self._remote_servers)
         servers.save()
+
+        # save the GNS3 VM preferences
+        new_settings = {}
+        new_settings["auto_start"] = self.uiEnableVMCheckBox.isChecked()
+        new_settings["auto_stop"] = self.uiShutdownCheckBox.isChecked()
+        new_settings["vmname"] = self.uiVMListComboBox.currentText()
+        new_settings["vmx_path"] = self.uiVMListComboBox.currentData()
+        new_settings["headless"] = self.uiHeadlessCheckBox.isChecked()
+        if self.uiVmwareRadioButton.isChecked():
+            new_settings["virtualization"] = "VMware"
+        elif self.uiVirtualBoxRadioButton.isChecked():
+            new_settings["virtualization"] = "VirtualBox"
+        gns3_vm = GNS3VM.instance()
+        gns3_vm.setSettings(new_settings)
 
         # restart the local server if required
         if restart_local_server:

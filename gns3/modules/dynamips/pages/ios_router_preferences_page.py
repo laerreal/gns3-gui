@@ -32,13 +32,12 @@ from gns3.dialogs.symbol_selection_dialog import SymbolSelectionDialog
 from gns3.dialogs.configuration_dialog import ConfigurationDialog
 from gns3.cloud.utils import UploadFilesThread
 from gns3.utils.progress_dialog import ProgressDialog
-from gns3.utils.file_copy_worker import FileCopyWorker
 from gns3.image_manager import ImageManager
 
 from .. import Dynamips
 from ..settings import IOS_ROUTER_SETTINGS
 from ..utils.decompress_ios import isIOSCompressed
-from ..utils.decompress_ios_thread import DecompressIOSThread
+from ..utils.decompress_ios_worker import DecompressIOSWorker
 from ..ui.ios_router_preferences_page_ui import Ui_IOSRouterPreferencesPageWidget
 from ..pages.ios_router_configuration_page import IOSRouterConfigurationPage
 from ..dialogs.ios_router_wizard import IOSRouterWizard
@@ -52,6 +51,8 @@ class IOSRouterPreferencesPage(QtWidgets.QWidget, Ui_IOSRouterPreferencesPageWid
     """
     QWidget preference page for IOS routers.
     """
+
+    _default_images_dir = ""
 
     def __init__(self):
         super().__init__()
@@ -67,68 +68,6 @@ class IOSRouterPreferencesPage(QtWidgets.QWidget, Ui_IOSRouterPreferencesPageWid
         self.uiIOSRoutersTreeWidget.itemSelectionChanged.connect(self._iosRouterChangedSlot)
         self.uiIOSRoutersTreeWidget.itemPressed.connect(self._iosRouterPressedSlot)
         self.uiDecompressIOSPushButton.clicked.connect(self._decompressIOSSlot)
-
-    def _createSectionItem(self, name):
-
-        section_item = QtWidgets.QTreeWidgetItem(self.uiIOSRouterInfoTreeWidget)
-        section_item.setText(0, name)
-        font = section_item.font(0)
-        font.setBold(True)
-        section_item.setFont(0, font)
-        return section_item
-
-    def _refreshInfo(self, ios_router):
-
-        self.uiIOSRouterInfoTreeWidget.clear()
-
-        # fill out the General section
-        section_item = self._createSectionItem("General")
-        QtWidgets.QTreeWidgetItem(section_item, ["Name:", ios_router["name"]])
-        QtWidgets.QTreeWidgetItem(section_item, ["Server:", ios_router["server"]])
-        QtWidgets.QTreeWidgetItem(section_item, ["Platform:", ios_router["platform"]])
-        if ios_router["chassis"]:
-            QtWidgets.QTreeWidgetItem(section_item, ["Chassis:", ios_router["chassis"]])
-        QtWidgets.QTreeWidgetItem(section_item, ["Image:", ios_router["image"]])
-        if ios_router["idlepc"]:
-            QtWidgets.QTreeWidgetItem(section_item, ["Idle-PC:", ios_router["idlepc"]])
-        if ios_router["startup_config"]:
-            QtWidgets.QTreeWidgetItem(section_item, ["Startup-config:", ios_router["startup_config"]])
-        if ios_router["private_config"]:
-            QtWidgets.QTreeWidgetItem(section_item, ["Private-config:", ios_router["private_config"]])
-        if ios_router["platform"] == "c7200":
-            QtWidgets.QTreeWidgetItem(section_item, ["Midplane:", ios_router["midplane"]])
-            QtWidgets.QTreeWidgetItem(section_item, ["NPE:", ios_router["npe"]])
-
-        # fill out the Memories and disk section
-        section_item = self._createSectionItem("Memories and disks")
-        QtWidgets.QTreeWidgetItem(section_item, ["RAM:", "{} MiB".format(ios_router["ram"])])
-        QtWidgets.QTreeWidgetItem(section_item, ["NVRAM:", "{} KiB".format(ios_router["nvram"])])
-        if "iomem" in ios_router and ios_router["iomem"]:
-            QtWidgets.QTreeWidgetItem(section_item, ["I/O memory:", "{}%".format(ios_router["iomem"])])
-        QtWidgets.QTreeWidgetItem(section_item, ["PCMCIA disk0:", "{} MiB".format(ios_router["disk0"])])
-        QtWidgets.QTreeWidgetItem(section_item, ["PCMCIA disk1:", "{} MiB".format(ios_router["disk1"])])
-
-        # fill out the Adapters section
-        section_item = self._createSectionItem("Adapters")
-        for slot_id in range(0, 7):
-            slot = "slot{}".format(slot_id)
-            if slot in ios_router and ios_router[slot]:
-                QtWidgets.QTreeWidgetItem(section_item, ["Slot {}:".format(slot_id), ios_router[slot]])
-        if section_item.childCount() == 0:
-            self.uiIOSRouterInfoTreeWidget.takeTopLevelItem(self.uiIOSRouterInfoTreeWidget.indexOfTopLevelItem(section_item))
-
-        # fill out the WICs section
-        section_item = self._createSectionItem("WICs")
-        for wic_id in range(0, 3):
-            wic = "wic{}".format(wic_id)
-            if wic in ios_router and ios_router[wic]:
-                QtWidgets.QTreeWidgetItem(section_item, ["WIC {}:".format(wic_id), ios_router[wic]])
-        if section_item.childCount() == 0:
-            self.uiIOSRouterInfoTreeWidget.takeTopLevelItem(self.uiIOSRouterInfoTreeWidget.indexOfTopLevelItem(section_item))
-
-        self.uiIOSRouterInfoTreeWidget.expandAll()
-        self.uiIOSRouterInfoTreeWidget.resizeColumnToContents(0)
-        self.uiIOSRouterInfoTreeWidget.resizeColumnToContents(1)
 
     def _iosRouterChangedSlot(self):
         """
@@ -259,6 +198,222 @@ class IOSRouterPreferencesPage(QtWidgets.QWidget, Ui_IOSRouterPreferencesPageWid
                     self.uiDeleteIOSRouterPushButton.setEnabled(False)
                     self.uiDecompressIOSPushButton.setEnabled(False)
 
+    def _imageUploadComplete(self):
+        if self._upload_image_progress_dialog.wasCanceled():
+            return
+        self._upload_image_progress_dialog.accept()
+
+    @staticmethod
+    def getImageDirectory():
+        return os.path.join(MainWindow.instance().imagesDirPath(), "IOS")
+
+    @classmethod
+    def getIOSImage(cls, parent, server):
+        """
+
+        :param parent: parent widget
+        :param server: The server where the image is located
+
+        :return: path to the IOS image or None
+        """
+
+        if not cls._default_images_dir:
+            cls._default_images_dir = cls.getImageDirectory()
+
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(parent,
+                                                        "Select an IOS image",
+                                                        cls._default_images_dir,
+                                                        "All files (*.*);;IOS image (*.bin *.image)",
+                                                        "IOS image (*.bin *.image)")
+
+        if not path:
+            return
+        cls._default_images_dir = os.path.dirname(path)
+
+        if not os.access(path, os.R_OK):
+            QtWidgets.QMessageBox.critical(parent, "IOS image", "Cannot read {}".format(path))
+            return
+
+        if sys.platform.startswith('win'):
+            # Dynamips (Cygwin actually) doesn't like non ascii paths on Windows
+            try:
+                path.encode('ascii')
+            except UnicodeEncodeError:
+                QtWidgets.QMessageBox.warning(parent, "IOS image", "The IOS image filename should contains only ascii (English) characters.")
+
+        try:
+            with open(path, "rb") as f:
+                # read the first 7 bytes of the file.
+                elf_header_start = f.read(7)
+        except OSError as e:
+            QtWidgets.QMessageBox.critical(parent, "IOS image", "Cannot read ELF magic number: {}".format(e))
+            return
+
+        # file must start with the ELF magic number, be 32-bit, big endian and have an ELF version of 1
+        if elf_header_start != b'\x7fELF\x01\x02\x01':
+            QtWidgets.QMessageBox.critical(parent, "IOS image", "Sorry, this is not a valid IOS image!")
+            return
+
+        try:
+            os.makedirs(cls.getImageDirectory(), exist_ok=True)
+        except OSError as e:
+            QtWidgets.QMessageBox.critical(parent, "IOS images directory", "Could not create the IOS images directory {}: {}".format(destination_directory, e))
+            return
+
+        compressed = False
+        try:
+            compressed = isIOSCompressed(path)
+        except (OSError, ValueError):
+            pass  # ignore errors if we cannot find out the IOS image is compressed.
+        if compressed:
+            reply = QtWidgets.QMessageBox.question(parent, "IOS image", "Would you like to decompress this IOS image?", QtWidgets.QMessageBox.Yes, QtWidgets.QMessageBox.No)
+            if reply == QtWidgets.QMessageBox.Yes:
+                decompressed_image_path = os.path.join(cls.getImageDirectory(), os.path.basename(os.path.splitext(path)[0] + ".image"))
+                worker = DecompressIOSWorker(path, decompressed_image_path)
+                progress_dialog = ProgressDialog(worker,
+                                                 "IOS image",
+                                                 "Decompressing IOS image {}...".format(os.path.basename(path)),
+                                                 "Cancel", busy=True, parent=parent)
+                progress_dialog.show()
+                if progress_dialog.exec_() is not False:
+                    path = decompressed_image_path
+
+        path = ImageManager.askCopyUploadImage(parent, path, server, cls.getImageDirectory(), "/dynamips/vms")
+
+        return path
+
+    @staticmethod
+    def getMinimumRequiredRAM(path):
+        """
+        Returns the minimum RAM required to run an IOS image.
+
+        :param path: path to the IOS image
+
+        :returns: minimum RAM in MB or 0 if there is an error
+        """
+
+        try:
+            if isIOSCompressed(path):
+                zip_file = zipfile.ZipFile(path, "r")
+                decompressed_size = 0
+                for zip_info in zip_file.infolist():
+                    decompressed_size += zip_info.file_size
+            else:
+                decompressed_size = os.path.getsize(path)
+        except (zipfile.BadZipFile, OSError):
+            return 0
+
+        # get the size in MB
+        decompressed_size = (decompressed_size / (1000 * 1000)) + 1
+        # round up to the closest multiple of 32 (step of the RAM SpinBox)
+        return math.ceil(decompressed_size / 32) * 32
+
+    def _decompressIOSSlot(self):
+        """
+        Slot to decompress an IOS image.
+        """
+
+        item = self.uiIOSRoutersTreeWidget.currentItem()
+        if item:
+            key = item.data(0, QtCore.Qt.UserRole)
+            ios_router = self._ios_routers[key]
+            path = ios_router["image"]
+            if not os.path.isfile(path):
+                QtWidgets.QMessageBox.critical(self, "IOS image", "IOS image file {} is does not exist".format(path))
+                return
+            try:
+                if not isIOSCompressed(path):
+                    QtWidgets.QMessageBox.critical(self, "IOS image", "IOS image {} is not compressed".format(os.path.basename(path)))
+                    return
+            except OSError as e:
+                # errno 22, invalid argument means the file system where the IOS image is located doesn't support mmap
+                if e.errno == 22:
+                    QtWidgets.QMessageBox.critical(self, "IOS image", "IOS image {} cannot be memory mapped, most likely because the file system doesn't support it".format(os.path.basename(path)))
+                else:
+                    QtWidgets.QMessageBox.critical(self, "IOS image", "Could not determine if the IOS image is compressed: {}".format(e))
+                return
+            except ValueError as e:
+                QtWidgets.QMessageBox.critical(self, "IOS image", "Could not determine if the IOS image is compressed: {}".format(e))
+                return
+
+            decompressed_image_path = os.path.splitext(path)[0] + ".image"
+            if os.path.isfile(decompressed_image_path):
+                QtWidgets.QMessageBox.critical(self, "IOS image", "Decompressed IOS image {} already exist".format(os.path.basename(decompressed_image_path)))
+                return
+
+            worker = DecompressIOSWorker(path, decompressed_image_path)
+            progress_dialog = ProgressDialog(worker,
+                                             "IOS image",
+                                             "Decompressing IOS image {}...".format(path),
+                                             "Cancel", busy=True, parent=self)
+            progress_dialog.show()
+            if progress_dialog.exec_() is not False:
+                ios_router["image"] = decompressed_image_path
+                self._refreshInfo(ios_router)
+
+    def _createSectionItem(self, name):
+
+        section_item = QtWidgets.QTreeWidgetItem(self.uiIOSRouterInfoTreeWidget)
+        section_item.setText(0, name)
+        font = section_item.font(0)
+        font.setBold(True)
+        section_item.setFont(0, font)
+        return section_item
+
+    def _refreshInfo(self, ios_router):
+
+        self.uiIOSRouterInfoTreeWidget.clear()
+
+        # fill out the General section
+        section_item = self._createSectionItem("General")
+        QtWidgets.QTreeWidgetItem(section_item, ["Name:", ios_router["name"]])
+        QtWidgets.QTreeWidgetItem(section_item, ["Server:", ios_router["server"]])
+        QtWidgets.QTreeWidgetItem(section_item, ["Platform:", ios_router["platform"]])
+        if ios_router["chassis"]:
+            QtWidgets.QTreeWidgetItem(section_item, ["Chassis:", ios_router["chassis"]])
+        QtWidgets.QTreeWidgetItem(section_item, ["Image:", ios_router["image"]])
+        if ios_router["idlepc"]:
+            QtWidgets.QTreeWidgetItem(section_item, ["Idle-PC:", ios_router["idlepc"]])
+        if ios_router["startup_config"]:
+            QtWidgets.QTreeWidgetItem(section_item, ["Startup-config:", ios_router["startup_config"]])
+        if ios_router["private_config"]:
+            QtWidgets.QTreeWidgetItem(section_item, ["Private-config:", ios_router["private_config"]])
+        if ios_router["platform"] == "c7200":
+            QtWidgets.QTreeWidgetItem(section_item, ["Midplane:", ios_router["midplane"]])
+            QtWidgets.QTreeWidgetItem(section_item, ["NPE:", ios_router["npe"]])
+
+        # fill out the Memories and disk section
+        section_item = self._createSectionItem("Memories and disks")
+        QtWidgets.QTreeWidgetItem(section_item, ["RAM:", "{} MiB".format(ios_router["ram"])])
+        QtWidgets.QTreeWidgetItem(section_item, ["NVRAM:", "{} KiB".format(ios_router["nvram"])])
+        if "iomem" in ios_router and ios_router["iomem"]:
+            QtWidgets.QTreeWidgetItem(section_item, ["I/O memory:", "{}%".format(ios_router["iomem"])])
+        QtWidgets.QTreeWidgetItem(section_item, ["PCMCIA disk0:", "{} MiB".format(ios_router["disk0"])])
+        QtWidgets.QTreeWidgetItem(section_item, ["PCMCIA disk1:", "{} MiB".format(ios_router["disk1"])])
+        QtWidgets.QTreeWidgetItem(section_item, ["Auto delete:", "{}".format(ios_router["auto_delete_disks"])])
+
+        # fill out the Adapters section
+        section_item = self._createSectionItem("Adapters")
+        for slot_id in range(0, 7):
+            slot = "slot{}".format(slot_id)
+            if slot in ios_router and ios_router[slot]:
+                QtWidgets.QTreeWidgetItem(section_item, ["Slot {}:".format(slot_id), ios_router[slot]])
+        if section_item.childCount() == 0:
+            self.uiIOSRouterInfoTreeWidget.takeTopLevelItem(self.uiIOSRouterInfoTreeWidget.indexOfTopLevelItem(section_item))
+
+        # fill out the WICs section
+        section_item = self._createSectionItem("WICs")
+        for wic_id in range(0, 3):
+            wic = "wic{}".format(wic_id)
+            if wic in ios_router and ios_router[wic]:
+                QtWidgets.QTreeWidgetItem(section_item, ["WIC {}:".format(wic_id), ios_router[wic]])
+        if section_item.childCount() == 0:
+            self.uiIOSRouterInfoTreeWidget.takeTopLevelItem(self.uiIOSRouterInfoTreeWidget.indexOfTopLevelItem(section_item))
+
+        self.uiIOSRouterInfoTreeWidget.expandAll()
+        self.uiIOSRouterInfoTreeWidget.resizeColumnToContents(0)
+        self.uiIOSRouterInfoTreeWidget.resizeColumnToContents(1)
+
     def _iosRouterPressedSlot(self, item, column):
         """
         Slot for item pressed.
@@ -278,14 +433,8 @@ class IOSRouterPreferencesPage(QtWidgets.QWidget, Ui_IOSRouterPreferencesPageWid
         menu = QtWidgets.QMenu()
         change_symbol_action = QtWidgets.QAction("Change symbol", menu)
         change_symbol_action.setIcon(QtGui.QIcon(":/icons/node_conception.svg"))
-        change_symbol_action.setEnabled(len(self.uiIOSRoutersTreeWidget.selectedItems()) == 1)
-        change_symbol_action.triggered.connect(self._changeSymbolSlot)
+        self.connect(change_symbol_action, QtCore.SIGNAL('triggered()'), self._changeSymbolSlot)
         menu.addAction(change_symbol_action)
-
-        delete_action = QtWidgets.QAction("Delete", menu)
-        delete_action.triggered.connect(self._iosRouterDeleteSlot)
-        menu.addAction(delete_action)
-
         menu.exec_(QtGui.QCursor.pos())
 
     def _changeSymbolSlot(self):
@@ -333,154 +482,3 @@ class IOSRouterPreferencesPage(QtWidgets.QWidget, Ui_IOSRouterPreferencesPageWid
         """
 
         Dynamips.instance().setIOSRouters(self._ios_routers)
-
-    def _imageUploadComplete(self):
-        if self._upload_image_progress_dialog.wasCanceled():
-            return
-        self._upload_image_progress_dialog.accept()
-
-    def _decompressIOSSlot(self):
-        """
-        Slot to decompress an IOS image.
-        """
-
-        item = self.uiIOSRoutersTreeWidget.currentItem()
-        if item:
-            key = item.data(0, QtCore.Qt.UserRole)
-            ios_router = self._ios_routers[key]
-            path = ios_router["image"]
-            if not os.path.isfile(path):
-                QtWidgets.QMessageBox.critical(self, "IOS image", "IOS image file {} is does not exist".format(path))
-                return
-            try:
-                if not isIOSCompressed(path):
-                    QtWidgets.QMessageBox.critical(self, "IOS image", "IOS image {} is not compressed".format(os.path.basename(path)))
-                    return
-            except (OSError, ValueError) as e:
-                # errno 22, invalid argument means the file system where the IOS image is located doesn't support mmap
-                if e.errno == 22:
-                    QtWidgets.QMessageBox.critical(self, "IOS image", "IOS image {} cannot be memory mapped, most likely because the file system doesn't support it".format(os.path.basename(path)))
-                else:
-                    QtWidgets.QMessageBox.critical(self, "IOS image", "Could not determine if the IOS image is compressed: {}".format(e))
-                return
-
-            decompressed_image_path = os.path.splitext(path)[0] + ".image"
-            if os.path.isfile(decompressed_image_path):
-                QtWidgets.QMessageBox.critical(self, "IOS image", "Decompressed IOS image {} already exist".format(os.path.basename(decompressed_image_path)))
-                return
-
-            thread = DecompressIOSThread(path, decompressed_image_path)
-            progress_dialog = ProgressDialog(thread,
-                                             "IOS image",
-                                             "Decompressing IOS image {}...".format(path),
-                                             "Cancel", busy=True, parent=self)
-            progress_dialog.show()
-            if progress_dialog.exec_() is not False:
-                ios_router["image"] = decompressed_image_path
-                self._refreshInfo(ios_router)
-            thread.wait()
-
-    @staticmethod
-    def getImageDirectory():
-        return os.path.join(MainWindow.instance().imagesDirPath(), "IOS")
-
-    @classmethod
-    def getIOSImage(cls, parent, server):
-        """
-
-        :param parent: parent widget
-        :param server: The server where the image is located
-
-        :return: path to the IOS image or None
-        """
-
-        destination_directory = cls.getImageDirectory()
-        path, _ = QtWidgets.QFileDialog.getOpenFileName(parent,
-                                                        "Select an IOS image",
-                                                        destination_directory,
-                                                        "All files (*.*);;IOS image (*.bin *.image)",
-                                                        "IOS image (*.bin *.image)")
-
-        if not path:
-            return
-
-        if not os.access(path, os.R_OK):
-            QtWidgets.QMessageBox.critical(parent, "IOS image", "Cannot read {}".format(path))
-            return
-
-        if sys.platform.startswith('win'):
-            # Dynamips (Cygwin actually) doesn't like non ascii paths on Windows
-            try:
-                path.encode('ascii')
-            except UnicodeEncodeError:
-                QtWidgets.QMessageBox.warning(parent, "IOS image", "The IOS image filename should contains only ascii (English) characters.")
-
-        try:
-            with open(path, "rb") as f:
-                # read the first 7 bytes of the file.
-                elf_header_start = f.read(7)
-        except OSError as e:
-            QtWidgets.QMessageBox.critical(parent, "IOS image", "Cannot read ELF magic number: {}".format(e))
-            return
-
-        # file must start with the ELF magic number, be 32-bit, big endian and have an ELF version of 1
-        if elf_header_start != b'\x7fELF\x01\x02\x01':
-            QtWidgets.QMessageBox.critical(parent, "IOS image", "Sorry, this is not a valid IOS image!")
-            return
-
-        try:
-            os.makedirs(destination_directory)
-        except FileExistsError:
-            pass
-        except OSError as e:
-            QtWidgets.QMessageBox.critical(parent, "IOS images directory", "Could not create the IOS images directory {}: {}".format(destination_directory, e))
-            return
-
-        compressed = False
-        try:
-            compressed = isIOSCompressed(path)
-        except (OSError, ValueError):
-            pass  # ignore errors if we cannot find out the IOS image is compressed.
-        if compressed:
-            reply = QtWidgets.QMessageBox.question(parent, "IOS image", "Would you like to decompress this IOS image?", QtWidgets.QMessageBox.Yes, QtWidgets.QMessageBox.No)
-            if reply == QtWidgets.QMessageBox.Yes:
-                decompressed_image_path = os.path.join(destination_directory, os.path.basename(os.path.splitext(path)[0] + ".image"))
-                thread = DecompressIOSThread(path, decompressed_image_path)
-                progress_dialog = ProgressDialog(thread,
-                                                 "IOS image",
-                                                 "Decompressing IOS image {}...".format(os.path.basename(path)),
-                                                 "Cancel", busy=True, parent=parent)
-                progress_dialog.show()
-                if progress_dialog.exec_() is not False:
-                    path = decompressed_image_path
-                thread.wait()
-
-        path = ImageManager.askCopyUploadImage(parent, path, server, cls.getImageDirectory(), "/dynamips/vms")
-
-        return path
-
-    @staticmethod
-    def getMinimumRequiredRAM(path):
-        """
-        Returns the minimum RAM required to run an IOS image.
-
-        :param path: path to the IOS image
-
-        :returns: minimum RAM in MB or 0 if there is an error
-        """
-
-        try:
-            if isIOSCompressed(path):
-                zip_file = zipfile.ZipFile(path, "r")
-                decompressed_size = 0
-                for zip_info in zip_file.infolist():
-                    decompressed_size += zip_info.file_size
-            else:
-                decompressed_size = os.path.getsize(path)
-        except (zipfile.BadZipFile, OSError):
-            return 0
-
-        # get the size in MB
-        decompressed_size = (decompressed_size / (1000 * 1000)) + 1
-        # round up to the closest multiple of 32 (step of the RAM SpinBox)
-        return math.ceil(decompressed_size / 32) * 32

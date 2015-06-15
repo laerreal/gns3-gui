@@ -23,15 +23,15 @@ import os
 import sys
 import shutil
 
-from gns3.qt import QtCore, QtWidgets
+from gns3.qt import QtWidgets
 from gns3.local_server_config import LocalServerConfig
 from gns3.local_config import LocalConfig
 
 from ..module import Module
 from ..module_error import ModuleError
 from .vmware_vm import VMwareVM
-from .settings import VMWARE_SETTINGS, VMWARE_SETTING_TYPES
-from .settings import VMWARE_VM_SETTINGS, VMWARE_VM_SETTING_TYPES
+from .settings import VMWARE_SETTINGS
+from .settings import VMWARE_VM_SETTINGS
 
 import logging
 log = logging.getLogger(__name__)
@@ -50,6 +50,9 @@ class VMware(Module):
         self._vmware_vms = {}
         self._nodes = []
 
+        self.configChangedSlot()
+
+    def configChangedSlot(self):
         # load the settings
         self._loadSettings()
         self._loadVMwareVMs()
@@ -135,8 +138,8 @@ class VMware(Module):
         Saves the VMware VMs to the client settings file.
         """
 
-        # save the settings
-        LocalConfig.instance().saveSectionSettings(self.__class__.__name__, {"vms": list(self._vmware_vms.values())})
+        self._settings["vms"] = list(self._vmware_vms.values())
+        self._saveSettings()
 
     def vmwareVMs(self):
         """
@@ -253,7 +256,6 @@ class VMware(Module):
                         (self._vmware_vms[vm]["server"] == "local" and other_node.server().isLocal() or self._vmware_vms[vm]["server"] == other_node.server().host):
                     raise ModuleError("Sorry a VMware VM that is not a linked base can only be used once in your topology")
 
-
         vm_settings = {}
         for setting_name, value in self._vmware_vms[vm].items():
             if setting_name in node.settings():
@@ -261,7 +263,7 @@ class VMware(Module):
 
         vmx_path = vm_settings.pop("vmx_path")
         name = vm_settings.pop("name")
-        node.setup(vmx_path, linked_clone=False, additional_settings=vm_settings, base_name=name)
+        node.setup(vmx_path, linked_clone=linked_base, additional_settings=vm_settings, base_name=name)
 
     def reset(self):
         """
@@ -305,7 +307,6 @@ class VMware(Module):
                 {"class": VMwareVM.__name__,
                  "name": vmware_vm["name"],
                  "server": vmware_vm["server"],
-                 "categories": VMwareVM.categories(),
                  "default_symbol": vmware_vm["default_symbol"],
                  "hover_symbol": vmware_vm["hover_symbol"],
                  "categories": [vmware_vm["category"]]}

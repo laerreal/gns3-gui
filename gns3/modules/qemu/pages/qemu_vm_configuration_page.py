@@ -20,14 +20,17 @@ Configuration page for QEMU VMs.
 """
 
 import os
+import sys
+import re
 from functools import partial
 from collections import OrderedDict
+from gns3.modules.qemu.dialogs.qemu_image_wizard import QemuImageWizard
 
 from gns3.qt import QtCore, QtWidgets
 from gns3.servers import Servers
 from gns3.modules.module_error import ModuleError
 from gns3.main_window import MainWindow
-from gns3.dialogs.node_configurator_dialog import ConfigurationError
+from gns3.dialogs.node_properties_dialog import ConfigurationError
 from gns3.image_manager import ImageManager
 
 from ..ui.qemu_vm_configuration_page_ui import Ui_QemuVMConfigPageWidget
@@ -40,15 +43,24 @@ class QemuVMConfigurationPage(QtWidgets.QWidget, Ui_QemuVMConfigPageWidget):
     QWidget configuration page for QEMU VMs.
     """
 
+    _default_images_dir = ""
+
     def __init__(self):
 
         super().__init__()
         self.setupUi(self)
+        self._server = None
 
         self.uiHdaDiskImageToolButton.clicked.connect(self._hdaDiskImageBrowserSlot)
         self.uiHdbDiskImageToolButton.clicked.connect(self._hdbDiskImageBrowserSlot)
         self.uiHdcDiskImageToolButton.clicked.connect(self._hdcDiskImageBrowserSlot)
         self.uiHddDiskImageToolButton.clicked.connect(self._hddDiskImageBrowserSlot)
+
+        self.uiHdaDiskImageCreateToolButton.clicked.connect(self._hdaDiskImageCreateSlot)
+        self.uiHdbDiskImageCreateToolButton.clicked.connect(self._hdbDiskImageCreateSlot)
+        self.uiHdcDiskImageCreateToolButton.clicked.connect(self._hdcDiskImageCreateSlot)
+        self.uiHddDiskImageCreateToolButton.clicked.connect(self._hddDiskImageCreateSlot)
+
         self.uiInitrdToolButton.clicked.connect(self._initrdBrowserSlot)
         self.uiKernelImageToolButton.clicked.connect(self._kernelImageBrowserSlot)
         self.uiActivateCPUThrottlingCheckBox.stateChanged.connect(self._cpuThrottlingChangedSlot)
@@ -101,10 +113,13 @@ class QemuVMConfigurationPage(QtWidgets.QWidget, Ui_QemuVMConfigPageWidget):
     @classmethod
     def getDiskImage(cls, parent, server):
 
-        destination_directory = cls.getImageDirectory()
-        path, _ = QtWidgets.QFileDialog.getOpenFileName(parent, "Select a QEMU disk image", destination_directory)
+        if not cls._default_images_dir:
+            cls._default_images_dir = cls.getImageDirectory()
+
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(parent, "Select a QEMU disk image", cls._default_images_dir)
         if not path:
             return
+        cls._default_images_dir = os.path.dirname(path)
 
         if not os.access(path, os.R_OK):
             QtWidgets.QMessageBox.critical(parent, "QEMU disk image", "Cannot read {}".format(path))
@@ -119,7 +134,7 @@ class QemuVMConfigurationPage(QtWidgets.QWidget, Ui_QemuVMConfigPageWidget):
         Slot to open a file browser and select a QEMU hda disk image.
         """
 
-        path = self.getDiskImage(self, self.server)
+        path = self.getDiskImage(self, self._server)
         if path:
             self.uiHdaDiskImageLineEdit.clear()
             self.uiHdaDiskImageLineEdit.setText(path)
@@ -129,7 +144,7 @@ class QemuVMConfigurationPage(QtWidgets.QWidget, Ui_QemuVMConfigPageWidget):
         Slot to open a file browser and select a QEMU hdb disk image.
         """
 
-        path = self.getDiskImage(self, self.server)
+        path = self.getDiskImage(self, self._server)
         if path:
             self.uiHdbDiskImageLineEdit.clear()
             self.uiHdbDiskImageLineEdit.setText(path)
@@ -139,7 +154,7 @@ class QemuVMConfigurationPage(QtWidgets.QWidget, Ui_QemuVMConfigPageWidget):
         Slot to open a file browser and select a QEMU hdc disk image.
         """
 
-        path = self.getDiskImage(self, self.server)
+        path = self.getDiskImage(self, self._server)
         if path:
             self.uiHdcDiskImageLineEdit.clear()
             self.uiHdcDiskImageLineEdit.setText(path)
@@ -149,17 +164,37 @@ class QemuVMConfigurationPage(QtWidgets.QWidget, Ui_QemuVMConfigPageWidget):
         Slot to open a file browser and select a QEMU hdd disk image.
         """
 
-        path = self.getDiskImage(self, self.server)
+        path = self.getDiskImage(self, self._server)
         if path:
             self.uiHddDiskImageLineEdit.clear()
             self.uiHddDiskImageLineEdit.setText(path)
+
+    def _hdaDiskImageCreateSlot(self):
+        create_dialog = QemuImageWizard(self, self.uiNameLineEdit.text() + '-hda')
+        if QtWidgets.QDialog.Accepted == create_dialog.exec_():
+            self.uiHdaDiskImageLineEdit.setText(create_dialog.uiLocationLineEdit.text())
+
+    def _hdbDiskImageCreateSlot(self):
+        create_dialog = QemuImageWizard(self, self.uiNameLineEdit.text() + '-hdb')
+        if QtWidgets.QDialog.Accepted == create_dialog.exec_():
+            self.uiHdbDiskImageLineEdit.setText(create_dialog.uiLocationLineEdit.text())
+
+    def _hdcDiskImageCreateSlot(self):
+        create_dialog = QemuImageWizard(self, self.uiNameLineEdit.text() + '-hdc')
+        if QtWidgets.QDialog.Accepted == create_dialog.exec_():
+            self.uiHdcDiskImageLineEdit.setText(create_dialog.uiLocationLineEdit.text())
+
+    def _hddDiskImageCreateSlot(self):
+        create_dialog = QemuImageWizard(self, self.uiNameLineEdit.text() + '-hdd')
+        if QtWidgets.QDialog.Accepted == create_dialog.exec_():
+            self.uiHddDiskImageLineEdit.setText(create_dialog.uiLocationLineEdit.text())
 
     def _initrdBrowserSlot(self):
         """
         Slot to open a file browser and select a QEMU initrd.
         """
 
-        path = self.getDiskImage(self, self.server)
+        path = self.getDiskImage(self, self._server)
         if path:
             self.uiInitrdLineEdit.clear()
             self.uiInitrdLineEdit.setText(path)
@@ -169,7 +204,7 @@ class QemuVMConfigurationPage(QtWidgets.QWidget, Ui_QemuVMConfigPageWidget):
         Slot to open a file browser and select a QEMU kernel image.
         """
 
-        path = self.getDiskImage(self, self.server)
+        path = self.getDiskImage(self, self._server)
         if path:
             self.uiKernelImageLineEdit.clear()
             self.uiKernelImageLineEdit.setText(path)
@@ -229,16 +264,19 @@ class QemuVMConfigurationPage(QtWidgets.QWidget, Ui_QemuVMConfigPageWidget):
         """
 
         if node:
-            self.server = node.server()
+            self._server = node.server()
         else:
-            self.server = Servers.instance().getServerFromString(settings["server"])
+            self._server = Servers.instance().getServerFromString(settings["server"])
 
         callback = partial(self._getQemuBinariesFromServerCallback, qemu_path=settings["qemu_path"])
         try:
-            Qemu.instance().getQemuBinariesFromServer(self.server, callback)
+            Qemu.instance().getQemuBinariesFromServer(self._server, callback)
         except ModuleError as e:
             QtWidgets.QMessageBox.critical(self, "Qemu binaries", "Error while getting the QEMU binaries: {}".format(e))
             self.uiQemuListComboBox.clear()
+
+        if self._server.isLocal() and not sys.platform.startswith("linux"):
+            self.uiKVMAccelerationCheckBox.hide()
 
         if not group:
             # set the device name
@@ -275,11 +313,21 @@ class QemuVMConfigurationPage(QtWidgets.QWidget, Ui_QemuVMConfigPageWidget):
         self.uiKernelCommandLineEdit.setText(settings["kernel_command_line"])
         self.uiAdaptersSpinBox.setValue(settings["adapters"])
         self.uiLegacyNetworkingCheckBox.setChecked(settings["legacy_networking"])
+
+        # load the MAC address setting
+        self.uiMacAddrLineEdit.setInputMask("HH:HH:HH:HH:HH:HH;_")
+        if settings["mac_address"]:
+            self.uiMacAddrLineEdit.setText(settings["mac_address"])
+        else:
+            self.uiMacAddrLineEdit.clear()
+
+        self.uiACPIShutdownCheckBox.setChecked(settings["acpi_shutdown"])
         index = self.uiAdapterTypesComboBox.findData(settings["adapter_type"])
         if index != -1:
             self.uiAdapterTypesComboBox.setCurrentIndex(index)
         self.uiRamSpinBox.setValue(settings["ram"])
 
+        self.uiKVMAccelerationCheckBox.setChecked(settings["kvm"])
         if settings["cpu_throttling"]:
             self.uiActivateCPUThrottlingCheckBox.setChecked(True)
             self.uiCPUThrottlingSpinBox.setValue(settings["cpu_throttling"])
@@ -291,7 +339,6 @@ class QemuVMConfigurationPage(QtWidgets.QWidget, Ui_QemuVMConfigPageWidget):
             self.uiProcessPriorityComboBox.setCurrentIndex(index)
         self.uiQemuOptionsLineEdit.setText(settings["options"])
 
-
     def saveSettings(self, settings, node=None, group=False):
         """
         Saves the QEMU VM settings.
@@ -302,7 +349,7 @@ class QemuVMConfigurationPage(QtWidgets.QWidget, Ui_QemuVMConfigPageWidget):
         """
 
         # these settings cannot be shared by nodes and updated
-        # in the node configurator.
+        # in the node properties dialog.
         if not group:
 
             name = self.uiNameLineEdit.text()
@@ -320,6 +367,16 @@ class QemuVMConfigurationPage(QtWidgets.QWidget, Ui_QemuVMConfigPageWidget):
             settings["initrd"] = self.uiInitrdLineEdit.text().strip()
             settings["kernel_image"] = self.uiKernelImageLineEdit.text().strip()
 
+            # check and save the MAC address
+            mac = self.uiMacAddrLineEdit.text()
+            if mac != ":::::":
+                if not re.search(r"""^([0-9a-fA-F]{2}[:]){5}[0-9a-fA-F]{2}$""", mac):
+                    QtWidgets.QMessageBox.critical(self, "MAC address", "Invalid MAC address (format required: hh:hh:hh:hh:hh:hh)")
+                else:
+                    settings["mac_address"] = mac
+            else:
+                settings["mac_address"] = None
+
         else:
             del settings["name"]
             if "console" in settings:
@@ -330,6 +387,7 @@ class QemuVMConfigurationPage(QtWidgets.QWidget, Ui_QemuVMConfigPageWidget):
             del settings["hdd_disk_image"]
             del settings["initrd"]
             del settings["kernel_image"]
+            del settings["mac_address"]
 
         if self.uiQemuListComboBox.count():
             qemu_path = self.uiQemuListComboBox.itemData(self.uiQemuListComboBox.currentIndex())
@@ -349,6 +407,8 @@ class QemuVMConfigurationPage(QtWidgets.QWidget, Ui_QemuVMConfigPageWidget):
 
         settings["adapters"] = adapters
         settings["legacy_networking"] = self.uiLegacyNetworkingCheckBox.isChecked()
+        settings["kvm"] = self.uiKVMAccelerationCheckBox.isChecked()
+        settings["acpi_shutdown"] = self.uiACPIShutdownCheckBox.isChecked()
         settings["ram"] = self.uiRamSpinBox.value()
         if self.uiActivateCPUThrottlingCheckBox.isChecked():
             settings["cpu_throttling"] = self.uiCPUThrottlingSpinBox.value()

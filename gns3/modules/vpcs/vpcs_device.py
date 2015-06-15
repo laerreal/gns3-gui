@@ -264,7 +264,7 @@ class VPCSDevice(VM):
         # for backward compatibility
         vm_id = node_info.get("vpcs_id")
         if not vm_id:
-            vm_id = node_info["vm_id"]
+            vm_id = node_info.get("vm_id")
 
         # prepare the VM settings
         vm_settings = {}
@@ -434,7 +434,7 @@ class VPCSDevice(VM):
 
     def configPage(self):
         """
-        Returns the configuration page widget to be used by the node configurator.
+        Returns the configuration page widget to be used by the node properties dialog.
 
         :returns: QWidget object
         """

@@ -30,10 +30,9 @@ import logging
 log = logging.getLogger(__name__)
 
 from gns3.utils.normalize_filename import normalize_filename
-from ..qt import QtCore
 from ..local_config import LocalConfig
 from ..nios.nio_udp import NIOUDP
-from ..settings import PACKET_CAPTURE_SETTINGS, PACKET_CAPTURE_SETTING_TYPES
+from ..settings import PACKET_CAPTURE_SETTINGS
 
 
 class Port:
@@ -60,6 +59,10 @@ class Port:
         self._id = Port._instance_count
         Port._instance_count += 1
 
+        # In 1.3.3 and 1.3.4 we have issue with port name not a string
+        # see: https://github.com/gns3/gns3-gui/issues/393
+        assert isinstance(name, str)
+
         self._name = name
         self._short_name = None
         self._port_number = None
@@ -71,6 +74,7 @@ class Port:
         self._data = {}
         self._destination_node = None
         self._destination_port = None
+        self._hot_pluggable = True
 
         self._capture_supported = False
         self._capture_file_path = ""
@@ -339,6 +343,22 @@ class Port:
 
         return self._stub
 
+    def setHotPluggable(self, hot_pluggable):
+        """
+        :param hot_pluggable: either the port is hot pluggable.
+        """
+
+        self._hot_pluggable = hot_pluggable
+
+    def isHotPluggable(self):
+        """
+        Checks if this port is hot pluggable.
+
+        :returns: boolean
+        """
+
+        return self._hot_pluggable
+
     @staticmethod
     def linkType():
         """
@@ -401,21 +421,7 @@ class Port:
         Loads the packet capture settings from the persistent settings file.
         """
 
-        local_config = LocalConfig.instance()
-
-        # restore the packet capture settings from QSettings (for backward compatibility)
-        legacy_settings = {}
-        settings = QtCore.QSettings()
-        settings.beginGroup("PacketCapture")
-        for name in PACKET_CAPTURE_SETTINGS.keys():
-            if settings.contains(name):
-                legacy_settings[name] = settings.value(name, type=PACKET_CAPTURE_SETTING_TYPES[name])
-        settings.remove("")
-        settings.endGroup()
-        if legacy_settings:
-            local_config.saveSectionSettings("PacketCapture", legacy_settings)
-
-        cls._settings = local_config.loadSectionSettings("PacketCapture", PACKET_CAPTURE_SETTINGS)
+        cls._settings = LocalConfig.instance().loadSectionSettings("PacketCapture", PACKET_CAPTURE_SETTINGS)
 
     @classmethod
     def setPacketCaptureSettings(cls, new_settings):
@@ -531,7 +537,6 @@ class Port:
                     print(msg)
                     log.error(msg)
                     return
-
 
             self._tail_process = subprocess.Popen(command1, startupinfo=info, stdout=subprocess.PIPE, env=env)
             self._capture_reader_process = subprocess.Popen(command2, stdin=self._tail_process.stdout, stdout=subprocess.PIPE)

@@ -71,6 +71,7 @@ class Router(VM):
                           "exec_area": 64,
                           "disk0": 0,
                           "disk1": 0,
+                          "auto_delete_disks": False,
                           "console": None,
                           "aux": None,
                           "mac_addr": None,
@@ -711,8 +712,8 @@ class Router(VM):
         # for backward compatibility
         vm_id = dynamips_id = node_info.get("router_id")
         if not vm_id:
-            vm_id = node_info["vm_id"]
-            dynamips_id = node_info["dynamips_id"]
+            vm_id = node_info.get("vm_id")
+            dynamips_id = node_info.get("dynamips_id")
 
         vm_settings = {}
         for name, value in node_info["properties"].items():
@@ -958,7 +959,7 @@ class Router(VM):
 
     def configPage(self):
         """
-        Returns the configuration page widget to be used by the node configurator.
+        Returns the configuration page widget to be used by the node properties dialog.
 
         :returns: QWidget object
         """

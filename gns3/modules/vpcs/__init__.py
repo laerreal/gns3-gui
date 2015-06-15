@@ -33,12 +33,11 @@ from gns3.local_config import LocalConfig
 from gns3.utils.get_resource import get_resource
 from gns3.utils.get_default_base_config import get_default_base_config
 from gns3.local_server_config import LocalServerConfig
-from gns3.qt import QtCore
 
 from ..module import Module
 from ..module_error import ModuleError
 from .vpcs_device import VPCSDevice
-from .settings import VPCS_SETTINGS, VPCS_SETTING_TYPES
+from .settings import VPCS_SETTINGS
 from ...settings import ENABLE_CLOUD
 
 import logging
@@ -61,6 +60,10 @@ class VPCS(Module):
         self._vpcs_multi_host_process = None
         self._vpcs_multi_host_port = 0
 
+        self._loadSettings()
+
+
+    def configChangedSlot(self):
         # load the settings
         self._loadSettings()
 
@@ -88,21 +91,7 @@ class VPCS(Module):
         Loads the settings from the persistent settings file.
         """
 
-        local_config = LocalConfig.instance()
-
-        # restore the VPCS settings from QSettings (for backward compatibility)
-        legacy_settings = {}
-        settings = QtCore.QSettings()
-        settings.beginGroup(self.__class__.__name__)
-        for name in VPCS_SETTINGS.keys():
-            if settings.contains(name):
-                legacy_settings[name] = settings.value(name, type=VPCS_SETTING_TYPES[name])
-        settings.remove("")
-        settings.endGroup()
-
-        if legacy_settings:
-            local_config.saveSectionSettings(self.__class__.__name__, legacy_settings)
-        self._settings = local_config.loadSectionSettings(self.__class__.__name__, VPCS_SETTINGS)
+        self._settings = LocalConfig.instance().loadSectionSettings(self.__class__.__name__, VPCS_SETTINGS)
 
         if not self._settings["base_script_file"]:
             self._settings["base_script_file"] = get_default_base_config(get_resource(os.path.join("configs", "vpcs_base_config.txt")))
@@ -343,8 +332,8 @@ class VPCS(Module):
                  "name": node_class.symbolName(),
                  "server": server,
                  "categories": node_class.categories(),
-                 "default_symbol": node_class.defaultSymbol(),
-                 "hover_symbol": node_class.hoverSymbol()}
+                 "default_symbol": self._settings["default_symbol"],
+                 "hover_symbol": self._settings["hover_symbol"]}
             )
             if ENABLE_CLOUD:
                 nodes.append(
@@ -352,8 +341,8 @@ class VPCS(Module):
                      "name": node_class.symbolName() + " (cloud)",
                      "server": "cloud",
                      "categories": node_class.categories(),
-                     "default_symbol": node_class.defaultSymbol(),
-                     "hover_symbol": node_class.hoverSymbol()}
+                     "default_symbol": self._settings["default_symbol"],
+                     "hover_symbol": self._settings["hover_symbol"]}
                 )
         return nodes
 

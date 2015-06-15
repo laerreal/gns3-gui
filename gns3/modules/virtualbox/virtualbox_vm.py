@@ -59,6 +59,7 @@ class VirtualBoxVM(VM):
                           "adapter_type": VBOX_VM_SETTINGS["adapter_type"],
                           "ram": VBOX_VM_SETTINGS["ram"],
                           "headless": VBOX_VM_SETTINGS["headless"],
+                          "acpi_shutdown": VBOX_VM_SETTINGS["acpi_shutdown"],
                           "enable_remote_console": VBOX_VM_SETTINGS["enable_remote_console"]}
 
     def _addAdapters(self, adapters):
@@ -376,7 +377,7 @@ class VirtualBoxVM(VM):
         # for backward compatibility
         vm_id = node_info.get("vbox_id")
         if not vm_id:
-            vm_id = node_info["vm_id"]
+            vm_id = node_info.get("vm_id")
         linked_clone = node_info.get("linked_clone", False)
 
         vm_settings = {}
@@ -481,7 +482,7 @@ class VirtualBoxVM(VM):
 
     def configPage(self):
         """
-        Returns the configuration page widget to be used by the node configurator.
+        Returns the configuration page widget to be used by the node properties dialog.
 
         :returns: QWidget object
         """
