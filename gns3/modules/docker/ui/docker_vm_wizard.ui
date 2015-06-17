@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>514</width>
-    <height>367</height>
+    <width>585</width>
+    <height>424</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -23,8 +23,8 @@
    <property name="subTitle">
     <string>Please choose a server type to run your new Docker VM.</string>
    </property>
-   <layout class="QGridLayout" name="gridLayout_2">
-    <item row="0" column="0">
+   <layout class="QVBoxLayout" name="verticalLayout">
+    <item>
      <widget class="QGroupBox" name="uiServerTypeGroupBox">
       <property name="title">
        <string>Server type</string>
@@ -41,9 +41,9 @@
         </widget>
        </item>
        <item>
-        <widget class="QRadioButton" name="uiCloudRadioButton">
+        <widget class="QRadioButton" name="uiVMRadioButton">
          <property name="text">
-          <string>Cloud</string>
+          <string>GNS3 VM</string>
          </property>
         </widget>
        </item>
@@ -70,29 +70,39 @@
       </layout>
      </widget>
     </item>
-    <item row="1" column="0">
+    <item>
      <widget class="QGroupBox" name="uiRemoteServersGroupBox">
       <property name="title">
        <string>Remote servers</string>
       </property>
-      <layout class="QGridLayout" name="gridLayout_8">
-       <item row="0" column="1">
+      <layout class="QGridLayout" name="gridLayout_7">
+       <item row="0" column="0" colspan="2">
+        <widget class="QCheckBox" name="uiLoadBalanceCheckBox">
+         <property name="text">
+          <string>Load balance across all available remote servers</string>
+         </property>
+         <property name="checked">
+          <bool>true</bool>
+         </property>
+        </widget>
+       </item>
+       <item row="1" column="0">
+        <widget class="QLabel" name="uiRemoteServersLabel">
+         <property name="text">
+          <string>Run on server:</string>
+         </property>
+        </widget>
+       </item>
+       <item row="1" column="1">
         <widget class="QComboBox" name="uiRemoteServersComboBox">
          <property name="enabled">
-          <bool>true</bool>
+          <bool>false</bool>
          </property>
          <property name="sizePolicy">
           <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
            <horstretch>0</horstretch>
            <verstretch>0</verstretch>
           </sizepolicy>
-         </property>
-        </widget>
-       </item>
-       <item row="0" column="0">
-        <widget class="QLabel" name="uiRemoteServersLabel">
-         <property name="text">
-          <string>Run on server:</string>
          </property>
         </widget>
        </item>
