@@ -110,8 +110,8 @@ class DockerVM(VM):
             self.server_error_signal.emit(self.id(), result["message"])
             return
 
-        self._id = result["id"]
-        if not self._id:
+        self._vm_id = result["id"]
+        if not self._vm_id:
             self.error_signal.emit(
                 self.id(), "returned ID from server is null")
             return
@@ -136,16 +136,14 @@ class DockerVM(VM):
             self._module.addNode(self)
 
     def start(self):
-        """Starts this Docker container.
-        """
-
+        """Starts this Docker container."""
         if self.status() == Node.started:
             log.debug("{} is already running".format(self.name()))
             return
 
         log.debug("{} is starting".format(self.name()))
         self.httpPost("/docker/images/{id}/start".format(
-            id=self._id), self._startCallback)
+            id=self._vm_id), self._startCallback)
 
     def _startCallback(self, result, error=False, **kwargs):
         """Callback for Docker container start.
@@ -172,7 +170,7 @@ class DockerVM(VM):
 
         log.debug("{} is stopping".format(self.name()))
         self.httpPost("/docker/images/{id}/stop".format(
-            id=self._id), self._stopCallback)
+            id=self._vm_id), self._stopCallback)
 
     def _stopCallback(self, result, error=False, **kwargs):
         """Callback for Docker container stop.
@@ -195,7 +193,7 @@ class DockerVM(VM):
         self.delete_links_signal.emit()
         if self._id:
             self.httpDelete("/docker/images/{id}".format(
-                id=self._id), self._deleteCallback)
+                id=self._vm_id), self._deleteCallback)
         else:
             self.deleted_signal.emit()
             self._module.removeNode(self)
@@ -232,7 +230,7 @@ class DockerVM(VM):
 
         log.debug("{} is updating settings: {}".format(self.name(), params))
         self.httpPut("/docker/images/{id}".format(
-            id=self._id), self._updateCallback, body=params)
+            id=self._vm_id), self._updateCallback, body=params)
 
     def _updateCallback(self, result, error=False, **kwargs):
         """
@@ -339,7 +337,7 @@ class DockerVM(VM):
             return
         log.debug("{} is being suspended".format(self.name()))
         self.httpPost("/docker/images/{id}/suspend".format(
-            id=self._id), self._suspendCallback)
+            id=self._vm_id), self._suspendCallback)
 
     def _suspendCallback(self, result, error=False, **kwargs):
         """Callback for container suspend.
@@ -363,7 +361,7 @@ class DockerVM(VM):
         """Reloads this Docker container."""
         log.debug("{} is being reloaded".format(self.name()))
         self.httpPost("/docker/images/{id}/reload".format(
-            id=self._id), self._reloadCallback)
+            id=self._vm_id), self._reloadCallback)
 
     def _reloadCallback(self, result, error=False, **kwargs):
         """Callback for Docker container reload.
@@ -387,7 +385,7 @@ class DockerVM(VM):
         """
         container = {
             "id": self.id(),
-            "cid": self._id,
+            "vm_id": self._vm_id,
             "type": self.__class__.__name__,
             "description": str(self),
             "properties": {},
@@ -418,10 +416,10 @@ class DockerVM(VM):
             state = "stopped"
 
         info = """Docker container {name} is {state}
-  Node ID is {id}, server's Docker container ID is {cid}
+  Node ID is {id}, server's Docker container ID is {vm_id}
 """.format(name=self.name(),
            id=self.id(),
-           cid=self._id,
+           vm_id=self._vm_id,
            state=state
            )
 
@@ -579,7 +577,7 @@ class DockerVM(VM):
                 adapter=port.adapterNumber(),
                 port=port.portNumber(),
                 prefix=self.URL_PREFIX,
-                id=self._id
+                id=self._vm_id
             ),
             self._addNIOCallback,
             context={"port_id": port.id()},
