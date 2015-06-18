@@ -19,12 +19,13 @@
 
 from gns3.qt import QtGui, QtWidgets
 from gns3.servers import Servers
+from gns3.dialogs.vm_wizard import VMWizard
 
 from ..ui.docker_vm_wizard_ui import Ui_DockerVMWizard
 from .. import Docker
 
 
-class DockerVMWizard(QtWidgets.QWizard, Ui_DockerVMWizard):
+class DockerVMWizard(VMWizard, Ui_DockerVMWizard):
     """Wizard to create a Docker image.
 
     :param docker_images: existing Docker images
@@ -34,20 +35,19 @@ class DockerVMWizard(QtWidgets.QWizard, Ui_DockerVMWizard):
     def __init__(self, docker_images, parent):
 
         super().__init__(parent)
-        self.setupUi(self)
         self.setPixmap(QtWidgets.QWizard.LogoPixmap, QtGui.QPixmap(
             ":/icons/docker.png"))
-        self.setWizardStyle(QtWidgets.QWizard.ModernStyle)
+
+        self._docker_images = docker_images
 
         if Docker.instance().settings()["use_local_server"]:
             # skip the server page if we use the local server
             self.setStartId(1)
 
-        self._docker_images = docker_images
-        # By default we use the local server
-        self._server = Servers.instance().localServer()
-
     def initializePage(self, page_id):
+
+        super().initializePage(page_id)
+
         if self.page(page_id) == self.uiDockerWizardPage:
             self._server.get(
                 "/docker/images", self._getDockerImagesFromServerCallback)
@@ -75,8 +75,10 @@ class DockerVMWizard(QtWidgets.QWizard, Ui_DockerVMWizard):
 
     def validateCurrentPage(self):
         """Validates the server."""
-        server = Servers.instance().localServer()
-        self._server = server
+
+        if super().validateCurrentPage() is False:
+            return False
+
         if not self.uiImageListComboBox.count():
             QtWidgets.QMessageBox.critical(
                 self, "Docker images",
