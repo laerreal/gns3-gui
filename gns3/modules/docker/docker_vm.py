@@ -604,18 +604,3 @@ class DockerVM(VM):
             linux_device = match.group(1)
             return NIOLinuxEthernet(linux_device)
         return None
-
-    def _allocateUDPPortCallback(self, result, error=False, context={}, **kwargs):
-        """Callback for allocateUDPPort.
-
-        :param result: server response (dict)
-        :param error: indicates an error (boolean)
-        """
-        if error:
-            log.error("error while allocating an UDP port for {}: {}".format(self.name(), result["message"]))
-            self.server_error_signal.emit(self.id(), result["message"])
-        else:
-            port_id = context["port_id"]
-            lport = result["udp_port"]
-            log.debug("{} has allocated UDP port {}".format(self.name(), port_id, lport))
-            self.allocate_udp_nio_signal.emit(self._id, port_id, lport)
