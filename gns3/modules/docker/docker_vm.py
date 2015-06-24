@@ -25,6 +25,7 @@ from gns3.ports.port import Port
 from gns3.ports.ethernet_port import EthernetPort
 from gns3.nios.nio_generic_ethernet import NIOGenericEthernet
 from gns3.nios.nio_linux_ethernet import NIOLinuxEthernet
+from gns3.nios.nio_udp import NIOUDP
 from .settings import DOCKER_CONTAINER_SETTINGS
 
 import logging
@@ -137,10 +138,6 @@ class DockerVM(VM):
 
     def start(self):
         """Starts this Docker container."""
-        if self.status() == Node.started:
-            log.debug("{} is already running".format(self.name()))
-            return
-
         log.debug("{} is starting".format(self.name()))
         self.httpPost("/docker/images/{id}/start".format(
             id=self._vm_id), self._startCallback)
@@ -161,9 +158,7 @@ class DockerVM(VM):
             self.setStatus(Node.started)
 
     def stop(self):
-        """Stops this Docker container.
-        """
-
+        """Stops this Docker container."""
         if self.status() == Node.stopped:
             log.debug("{} is already stopped".format(self.name()))
             return
@@ -212,26 +207,6 @@ class DockerVM(VM):
         self.deleted_signal.emit()
         self._module.removeNode(self)
 
-    def update(self, new_settings):
-        """
-        Updates the settings for this Docker VM.
-
-        :param new_settings: settings dictionary
-        """
-
-        if "name" in new_settings and new_settings["name"] != self.name() and self.hasAllocatedName(new_settings["name"]):
-            self.error_signal.emit(self.id(), 'Name "{}" is already used by another node'.format(new_settings["name"]))
-            return
-
-        params = {}
-        for name, value in new_settings.items():
-            if name in self._settings and self._settings[name] != value:
-                params[name] = value
-
-        log.debug("{} is updating settings: {}".format(self.name(), params))
-        self.httpPut("/docker/images/{id}".format(
-            id=self._vm_id), self._updateCallback, body=params)
-
     def _updateCallback(self, result, error=False, **kwargs):
         """
         Callback for update.
@@ -278,7 +253,6 @@ class DockerVM(VM):
         updated = False
         if "nios" in new_settings:
             nios = new_settings["nios"]
-
             # add ports
             for nio in nios:
                 if nio in self._settings["nios"]:
@@ -583,6 +557,22 @@ class DockerVM(VM):
             context={"port_id": port.id()},
             body=params)
 
+    def deleteNIO(self, port):
+        """
+        Deletes an NIO from the specified port on this instance
+
+        :param port: Port instance
+        """
+
+        log.debug("{} is deleting an NIO".format(self.name()))
+        self.httpDelete(
+            "/{prefix}/images/{vm_id}/adapters/{adapter}/ports/{port}/nio".format(
+                adapter=port.adapterNumber(),
+                prefix=self.URL_PREFIX,
+                port=port.portNumber(),
+                vm_id=self._vm_id),
+            self._deleteNIOCallback)
+
     def _createNIOGenericEthernet(self, nio):
         """Creates a NIO Generic Ethernet.
 
@@ -603,4 +593,19 @@ class DockerVM(VM):
         if match:
             linux_device = match.group(1)
             return NIOLinuxEthernet(linux_device)
+        return None
+
+    def _createNIOUDP(self, nio):
+        """
+        Creates a NIO UDP.
+
+        :param nio: nio string
+        """
+
+        match = re.search(r"""^nio_udp:(\d+):(.+):(\d+)$""", nio)
+        if match:
+            lport = int(match.group(1))
+            rhost = match.group(2)
+            rport = int(match.group(3))
+            return NIOUDP(lport, rhost, rport)
         return None
