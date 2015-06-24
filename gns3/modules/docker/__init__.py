@@ -45,20 +45,18 @@ class Docker(Module):
 
     def _loadSettings(self):
         """Loads the settings from the persistent settings file."""
-        local_config = LocalConfig.instance()
-        self._settings = local_config.loadSectionSettings(
-            self.__class__.__name__, DOCKER_SETTINGS)
 
-        # keep the config file sync
-        self._saveSettings()
+        local_config = LocalConfig.instance()
+        self._settings = local_config.loadSectionSettings(self.__class__.__name__, DOCKER_SETTINGS)
 
     def _saveSettings(self):
         """Saves the settings to the persistent settings file."""
-        LocalConfig.instance().saveSectionSettings(
-            self.__class__.__name__, self._settings)
+
+        LocalConfig.instance().saveSectionSettings(self.__class__.__name__, self._settings)
 
     def _loadDockerImages(self):
         """Load the Docker images from the persistent settings file."""
+
         local_config = LocalConfig.instance()
         settings = local_config.settings()
         if "images" in settings.get(self.__class__.__name__, {}):
@@ -72,13 +70,11 @@ class Docker(Module):
                 container_settings.update(image)
                 self._docker_image[key] = container_settings
 
-        self._saveDockerImages()
-
     def _saveDockerImages(self):
         """Saves the Docker images to the persistent settings file."""
-        LocalConfig.instance().saveSectionSettings(
-            self.__class__.__name__,
-            {"images": list(self._docker_images.values())})
+
+        self._settings["images"] = list(self._docker_images.values())
+        self._saveSettings()
 
     def dockerImages(self):
         """
@@ -87,6 +83,7 @@ class Docker(Module):
         :returns: Docker images settings
         :rtype: dict
         """
+
         return self._docker_images
 
     def setDockerImages(self, new_docker_images):
