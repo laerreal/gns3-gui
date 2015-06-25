@@ -23,10 +23,11 @@ import sys
 import os
 import shutil
 
-from gns3.qt import QtCore, QtGui, QtWidgets
+from gns3.qt import QtWidgets
 from gns3.servers import Servers
 from gns3.local_config import LocalConfig
 from gns3.local_server_config import LocalServerConfig
+from gns3.gns3_vm import GNS3VM
 
 from ..module import Module
 from ..module_error import ModuleError
@@ -80,7 +81,6 @@ class Dynamips(Module):
     def configChangedSlot(self):
         # load the settings and IOS images.
         self._loadSettings()
-        self._loadIOSRouters()
 
     @staticmethod
     def _findDynamips():
@@ -110,8 +110,7 @@ class Dynamips(Module):
         if not os.path.exists(self._settings["dynamips_path"]):
             self._settings["dynamips_path"] = self._findDynamips()
 
-        # keep the config file sync
-        self._saveSettings()
+        self._loadIOSRouters()
 
     def _saveSettings(self):
         """
@@ -144,16 +143,16 @@ class Dynamips(Module):
             for router in settings[self.__class__.__name__]["routers"]:
                 name = router.get("name")
                 server = router.get("server")
-                router["image"] = router.get("path", router["image"])  # for compatibility before version 1.3
+                router["image"] = router.get("path", router["image"])  # for backward compatibility before version 1.3
                 key = "{server}:{name}".format(server=server, name=name)
                 if key in self._ios_routers or not name or not server:
                     continue
                 router_settings = IOS_ROUTER_SETTINGS.copy()
                 router_settings.update(router)
+                # for backward compatibility before version 1.4
+                router_settings["symbol"] = router_settings.get("default_symbol", router_settings["symbol"])
+                router_settings["symbol"] = router_settings["symbol"][:-11] + ".svg" if router_settings["symbol"].endswith("normal.svg") else router_settings["symbol"]
                 self._ios_routers[key] = router_settings
-
-        # keep things sync
-        self._saveIOSRouters()
 
     def _saveIOSRouters(self):
         """
@@ -180,6 +179,8 @@ class Dynamips(Module):
         """
 
         if node in self._nodes:
+            if "ram" in node.settings():
+                node.server().decreaseAllocatedRAM(node.settings()["ram"])
             self._nodes.remove(node)
 
     def iosRouters(self):
@@ -219,28 +220,6 @@ class Dynamips(Module):
 
         self._settings.update(settings)
         self._saveSettings()
-
-    def allocateServer(self, node_class):
-        """
-        Allocates a server.
-
-        :param node_class: Node object
-
-        :returns: allocated server (HTTPClient instance)
-        """
-
-        # allocate a server for the node
-        servers = Servers.instance()
-
-        if self._settings["use_local_server"]:
-            # use the local server
-            server = servers.localServer()
-        else:
-            # pick up a remote server (round-robin method)
-            server = next(iter(servers))
-            if not server:
-                raise ModuleError("No remote server is configured")
-        return server
 
     def createNode(self, node_class, server, project):
         """
@@ -425,10 +404,13 @@ class Dynamips(Module):
 
         server = "local"
         if not self._settings["use_local_server"]:
-            # pick up a remote server (round-robin method) #FIXME: review this
-            remote_server = next(iter(Servers.instance()))
-            if remote_server:
-                server = remote_server.url()
+            if GNS3VM.instance().isRunning():
+                server = "vm"
+            else:
+                # pick up a remote server (round-robin method) #FIXME: review this
+                remote_server = next(iter(Servers.instance()))
+                if remote_server:
+                    server = remote_server.url()
 
         nodes = []
         for node_class in [EthernetSwitch, EthernetHub, FrameRelaySwitch, ATMSwitch]:
@@ -437,8 +419,7 @@ class Dynamips(Module):
                  "name": node_class.symbolName(),
                  "server": server,
                  "categories": node_class.categories(),
-                 "default_symbol": node_class.defaultSymbol(),
-                 "hover_symbol": node_class.hoverSymbol()}
+                 "symbol": node_class.defaultSymbol()}
             )
 
         for ios_router in self._ios_routers.values():
@@ -446,9 +427,9 @@ class Dynamips(Module):
             nodes.append(
                 {"class": node_class.__name__,
                  "name": ios_router["name"],
+                 "ram": ios_router["ram"],
                  "server": ios_router["server"],
-                 "default_symbol": ios_router["default_symbol"],
-                 "hover_symbol": ios_router["hover_symbol"],
+                 "symbol": ios_router["symbol"],
                  "categories": [ios_router["category"]]}
             )
 

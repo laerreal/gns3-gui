@@ -19,8 +19,11 @@
 QEMU module implementation.
 """
 
+import sys
+
 from gns3.qt import QtWidgets
 from gns3.local_config import LocalConfig
+from gns3.local_server_config import LocalServerConfig
 
 from ..module import Module
 from ..module_error import ModuleError
@@ -50,7 +53,6 @@ class Qemu(Module):
     def configChangedSlot(self):
         # load the settings
         self._loadSettings()
-        self._loadQemuVMs()
 
     def _loadSettings(self):
         """
@@ -58,9 +60,7 @@ class Qemu(Module):
         """
 
         self._settings = LocalConfig.instance().loadSectionSettings(self.__class__.__name__, QEMU_SETTINGS)
-
-        # keep the config file sync
-        self._saveSettings()
+        self._loadQemuVMs()
 
     def _saveSettings(self):
         """
@@ -69,6 +69,14 @@ class Qemu(Module):
 
         # save the settings
         LocalConfig.instance().saveSectionSettings(self.__class__.__name__, self._settings)
+
+        # save some settings to the local server config file
+        if sys.platform.startswith("linux"):
+            server_settings = {
+                "enable_kvm": self._settings["enable_kvm"],
+            }
+
+            LocalServerConfig.instance().saveSettings(self.__class__.__name__, server_settings)
 
     def _loadQemuVMs(self):
         """
@@ -85,10 +93,10 @@ class Qemu(Module):
                     continue
                 vm_settings = QEMU_VM_SETTINGS.copy()
                 vm_settings.update(vm)
+                # for backward compatibility before version 1.4
+                vm_settings["symbol"] = vm_settings.get("default_symbol", vm_settings["symbol"])
+                vm_settings["symbol"] = vm_settings["symbol"][:-11] + ".svg" if vm_settings["symbol"].endswith("normal.svg") else vm_settings["symbol"]
                 self._qemu_vms[key] = vm_settings
-
-        # keep things sync
-        self._saveQemuVMs()
 
     def _saveQemuVMs(self):
         """
@@ -134,6 +142,8 @@ class Qemu(Module):
         """
 
         if node in self._nodes:
+            if "ram" in node.settings():
+                node.server().decreaseAllocatedRAM(node.settings()["ram"])
             self._nodes.remove(node)
 
     def settings(self):
@@ -212,7 +222,15 @@ class Qemu(Module):
 
         qemu_path = vm_settings.pop("qemu_path")
         name = vm_settings.pop("name")
-        node.setup(qemu_path, additional_settings=vm_settings, base_name=name)
+        port_name_format = self._qemu_vms[vm]["port_name_format"]
+        port_segment_size = self._qemu_vms[vm]["port_segment_size"]
+        first_port_name = self._qemu_vms[vm]["first_port_name"]
+        node.setup(qemu_path,
+                   port_name_format=port_name_format,
+                   port_segment_size=port_segment_size,
+                   first_port_name=first_port_name,
+                   additional_settings=vm_settings,
+                   base_name=name)
 
     def reset(self):
         """
@@ -275,9 +293,9 @@ class Qemu(Module):
             nodes.append(
                 {"class": QemuVM.__name__,
                  "name": qemu_vm["name"],
+                 "ram": qemu_vm["ram"],
                  "server": qemu_vm["server"],
-                 "default_symbol": qemu_vm["default_symbol"],
-                 "hover_symbol": qemu_vm["hover_symbol"],
+                 "symbol": qemu_vm["symbol"],
                  "categories": [qemu_vm["category"]]
                  }
             )

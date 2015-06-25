@@ -58,6 +58,7 @@ class Router(VM):
         self._settings = {"name": "",
                           "platform": platform,
                           "image": "",
+                          "image_md5sum": "",
                           "startup_config": "",
                           "private_config": "",
                           "ram": 128,
@@ -282,22 +283,10 @@ class Router(VM):
         :param error: indicates an error (boolean)
         """
 
-        if error:
-            log.error("error while setting up {}: {}".format(self.name(), result["message"]))
-            self.server_error_signal.emit(self.id(), result["message"])
-            return
-
-        self._vm_id = result["vm_id"]
         self._dynamips_id = result["dynamips_id"]
 
-        # update the settings using the defaults sent by the server
-        for name, value in result.items():
-            if name in self._settings and self._settings[name] != value:
-                log.info("Router {} setting up and updating {} from '{}' to '{}'".format(self.name(),
-                                                                                         name,
-                                                                                         self._settings[name],
-                                                                                         value))
-                self._settings[name] = value
+        if not super()._setupCallback(result, error=error, **kwargs):
+            return
 
         # create the ports on the client side
         self._insertAdapters(self._settings)
@@ -309,6 +298,10 @@ class Router(VM):
             log.debug("router {} has been created".format(self.name()))
             self.created_signal.emit(self.id())
             self._module.addNode(self)
+
+        # The image is missing on remote server
+        if "image_md5sum" not in result or result["image_md5sum"] is None or len(result["image_md5sum"]) == 0:
+            ImageManager.instance().addMissingImage(result["image"], self._server, "DYNAMIPS")
 
     def update(self, new_settings):
         """
@@ -992,17 +985,7 @@ class Router(VM):
         :returns: symbol path (or resource).
         """
 
-        return ":/symbols/router.normal.svg"
-
-    @staticmethod
-    def hoverSymbol():
-        """
-        Returns the symbol to use when the router is hovered.
-
-        :returns: symbol path (or resource).
-        """
-
-        return ":/symbols/router.selected.svg"
+        return ":/symbols/router.svg"
 
     @staticmethod
     def categories():

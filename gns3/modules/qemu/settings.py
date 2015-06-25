@@ -23,33 +23,34 @@ from gns3.node import Node
 
 QEMU_SETTINGS = {
     "use_local_server": True,
+    "enable_kvm": True,
 }
 
 QEMU_VM_SETTINGS = {
     "name": "",
-    "default_symbol": ":/symbols/qemu_guest.normal.svg",
-    "hover_symbol": ":/symbols/qemu_guest.selected.svg",
+    "symbol": ":/symbols/qemu_guest.svg",
     "category": Node.end_devices,
+    "port_name_format": "Ethernet{0}",
+    "port_segment_size": 0,
+    "first_port_name": "",
     "qemu_path": "",
     "hda_disk_image": "",
     "hdb_disk_image": "",
     "hdc_disk_image": "",
     "hdd_disk_image": "",
+    "console_type": "telnet",
     "ram": 256,
     "adapters": 1,
     "adapter_type": "e1000",
     "mac_address": "",
     "legacy_networking": False,
     "acpi_shutdown": False,
-    "kvm": True,
     "platform": "",
     "cpu_throttling": 0,
     "process_priority": "normal",
     "options": "",
-    "initrd": "",
     "kernel_image": "",
+    "initrd": "",
     "kernel_command_line": "",
     "server": "local"
 }
-
-

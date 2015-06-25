@@ -71,6 +71,9 @@ class HTTPClient(QtCore.QObject):
         self._connected = False
         self._local = True
         self._cloud = False
+        self._gns3_vm = False
+        self._ram_limit = settings.get("ram_limit", 0)
+        self._allocated_ram = 0
         self._accept_insecure_certificate = settings.get("accept_insecure_certificate", False)
 
         self._network_manager = network_manager
@@ -106,9 +109,11 @@ class HTTPClient(QtCore.QObject):
         Return a dictionnary with server settings
         """
         settings = {"protocol": self.protocol(),
+                    "ram_limit": self.RAMLimit(),
                     "host": self.host(),
                     "port": self.port(),
-                    "user": self.user()}
+                    "user": self.user(),
+                    "password": self._password}
         if self.protocol() == "https":
             settings["accept_insecure_certificate"] = self.acceptInsecureCertificate()
         return settings
@@ -127,6 +132,9 @@ class HTTPClient(QtCore.QObject):
         Host display to user
         """
         return self._host
+
+    def setHost(self, host):
+        self._host = host
 
     def port(self):
         """
@@ -149,27 +157,24 @@ class HTTPClient(QtCore.QObject):
         """
         return self._user
 
-    def progressCallbackDisable(self):
-        """
-        Disable the progress callback
-        """
-        HTTPClient._progress_callback.disable()
+    def setUser(self, user):
+        self._user = user
 
-    def progressCallbackEnable(self):
-        """
-        Disable the progress callback
-        """
-        HTTPClient._progress_callback.enable()
+    def setPassword(self, password):
+        self._password = password
 
-    def notify_progress_start_query(self, query_id):
+    def notify_progress_start_query(self, query_id, progress_text, response):
         """
         Called when a query start
         """
         if HTTPClient._progress_callback:
-            if self._local:
-                HTTPClient._progress_callback.add_query_signal.emit(query_id, "Waiting for local GNS3 server")
+            if progress_text:
+                HTTPClient._progress_callback.add_query_signal.emit(query_id, progress_text, response)
             else:
-                HTTPClient._progress_callback.add_query_signal.emit(query_id, "Waiting for {}".format(self.url()))
+                if self._local:
+                    HTTPClient._progress_callback.add_query_signal.emit(query_id, "Waiting for local GNS3 server", response)
+                else:
+                    HTTPClient._progress_callback.add_query_signal.emit(query_id, "Waiting for {}".format(self.url()), response)
 
     def notify_progress_end_query(cls, query_id):
         """
@@ -209,6 +214,7 @@ class HTTPClient(QtCore.QObject):
 
     def url(self):
         """Returns current server url"""
+
         return getNetworkUrl(self.protocol(), self.host(), self.port(), self.user(), self.settings())
 
     def id(self):
@@ -235,6 +241,24 @@ class HTTPClient(QtCore.QObject):
 
         return self._local
 
+    def setGNS3VM(self, value):
+        """
+        Sets either this is a connection to the GNS3 VM or not.
+
+        :param value: boolean
+        """
+
+        self._gns3_vm = value
+
+    def isGNS3VM(self):
+        """
+        Returns either this is a connection to the GNS3 VM or not.
+
+        :returns: boolean
+        """
+
+        return self._gns3_vm
+
     def connected(self):
         """
         Returns if the client is connected.
@@ -252,14 +276,34 @@ class HTTPClient(QtCore.QObject):
 
     def isLocalServerRunning(self):
         """
-        Check if a server is already running on this host.
+        Synchronous check if a server is already running on this host.
 
         :returns: boolean
         """
-        try:
-            url = "{protocol}://{host}:{port}/v1/version".format(protocol=self._scheme, host=self._http_host, port=self._http_port)
+        status, json_data = self.getSynchronous("version", timeout=2)
+        if json_data is None or status != 200:
+            return False
+        else:
+            version = json_data.get("version")
+            local_server = json_data.get("local", False)
+            if version != __version__:
+                log.debug("Client version {} differs with server version {}".format(__version__, version))
+                return False
+            if not local_server:
+                log.debug("Running server is not a GNS3 local server (not started with --local)")
+                return False
 
-            if self._user is not None:
+    def getSynchronous(self, endpoint, timeout=2):
+        """
+        Synchronous check if a server is running
+
+        :returns: Tuple (Status code, json of anwser). Status 0 is a non HTTP error
+        """
+        try:
+            url = "{protocol}://{host}:{port}/v1/{endpoint}".format(protocol=self._scheme, host=self._http_host, port=self._http_port, endpoint=endpoint)
+
+            log.debug("Synchronous get %s with user %s", url, self._user)
+            if self._user is not None and len(self._user) > 0:
                 auth_handler = urllib.request.HTTPBasicAuthHandler()
                 auth_handler.add_password(realm="GNS3 server",
                                           uri=url,
@@ -270,76 +314,68 @@ class HTTPClient(QtCore.QObject):
 
             response = urllib.request.urlopen(url, timeout=2)
             content_type = response.getheader("CONTENT-TYPE")
-            if response.status == 200 and content_type == "application/json":
-                content = response.read()
-                json_data = json.loads(content.decode("utf-8"))
-                version = json_data.get("version")
-                local_server = json_data.get("local", False)
-                if version != __version__:
-                    log.debug("Client version {} differs with server version {}".format(__version__, version))
-                    return False
-                if not local_server:
-                    log.debug("Running server is not a GNS3 local server (not started with --local)")
-                    return False
-                return True
-        except (OSError, urllib.error.HTTPError, http.client.BadStatusLine, ValueError) as e:
-            log.debug("A non GNS3 server is already running on {}:{}: {}".format(self.host, self.port, e))
-        return False
+            if response.status == 200:
+                if content_type == "application/json":
+                    content = response.read()
+                    json_data = json.loads(content.decode("utf-8"))
+                    local_server = json_data.get("local", False)
+                    return response.status, json_data
+            else:
+                return response.status, None
+        except urllib.error.HTTPError as e:
+            log.debug("Error during get on {}:{}: {}".format(self._host, self._port, e))
+            return e.code, None
+        except (OSError, http.client.BadStatusLine, ValueError) as e:
+            log.debug("Error during get on {}:{}: {}".format(self._host, self._port, e))
+            return 0, None
 
-    def get(self, path, callback, body={}, context={}, downloadProgressCallback=None, showProgress=True):
+    def get(self, path, callback, **kwargs):
         """
         HTTP GET on the remote server
 
         :param path: Remote path
         :param callback: callback method to call when the server replies
-        :param context: Pass a context to the response callback
-        :param body: params to send (dictionary or pathlib.Path)
-        :param downloadProgressCallback: Callback called when received something, it can be an incomplete response
-        :param showProgress: Display progress to the user
+
+        Full arg list in createHTTPQuery
         """
 
-        self.createHTTPQuery("GET", path, callback, context=context, body=body, downloadProgressCallback=downloadProgressCallback, showProgress=showProgress)
+        self.createHTTPQuery("GET", path, callback, **kwargs)
 
-    def put(self, path, callback, body={}, context={}, downloadProgressCallback=None, showProgress=True):
+    def put(self, path, callback, **kwargs):
         """
         HTTP PUT on the remote server
 
         :param path: Remote path
         :param callback: callback method to call when the server replies
-        :param context: Pass a context to the response callback
-        :param body: params to send (dictionary or pathlib.Path)
-        :param downloadProgressCallback: Callback called when received something, it can be an incomplete response
-        :param showProgress: Display progress to the user
+
+        Full arg list in createHTTPQuery
         """
 
-        self.createHTTPQuery("PUT", path, callback, context=context, body=body, downloadProgressCallback=downloadProgressCallback, showProgress=showProgress)
+        self.createHTTPQuery("PUT", path, callback, **kwargs)
 
-    def post(self, path, callback, body={}, context={}, downloadProgressCallback=None, showProgress=True):
+    def post(self, path, callback, **kwargs):
         """
         HTTP POST on the remote server
 
         :param path: Remote path
         :param callback: callback method to call when the server replies
-        :param context: Pass a context to the response callback
-        :param body: params to send (dictionary or pathlib.Path)
-        :param downloadProgressCallback: Callback called when received something, it can be an incomplete response
-        :param showProgress: Display progress to the user
+
+        Full arg list in createHTTPQuery
         """
 
-        self.createHTTPQuery("POST", path, callback, context=context, body=body, downloadProgressCallback=downloadProgressCallback, showProgress=showProgress)
+        self.createHTTPQuery("POST", path, callback, **kwargs)
 
-    def delete(self, path, callback, context={}, downloadProgressCallback=None, showProgress=True):
+    def delete(self, path, callback, **kwargs):
         """
         HTTP DELETE on the remote server
 
         :param path: Remote path
         :param callback: callback method to call when the server replies
-        :param context: Pass a context to the response callback
-        :param downloadProgressCallback: Callback called when received something, it can be an incomplete response
-        :param showProgress: Display progress to the user
+
+        Full arg list in createHTTPQuery
         """
 
-        self.createHTTPQuery("DELETE", path, callback, context=context, downloadProgressCallback=downloadProgressCallback, showProgress=showProgress)
+        self.createHTTPQuery("DELETE", path, callback, **kwargs)
 
     def _request(self, url):
         """
@@ -352,6 +388,7 @@ class HTTPClient(QtCore.QObject):
 
         return QtNetwork.QNetworkRequest(url)
 
+    # FIXME: connect is a method in parent class (QObject)
     def connect(self, query, callback):
         """
         Initialize the connection
@@ -361,7 +398,7 @@ class HTTPClient(QtCore.QObject):
         """
         self.executeHTTPQuery("GET", "/version", query, {})
 
-    def createHTTPQuery(self, method, path, callback, body={}, context={}, downloadProgressCallback=None, showProgress=True, ignoreErrors=False):
+    def createHTTPQuery(self, method, path, callback, body={}, context={}, downloadProgressCallback=None, showProgress=True, ignoreErrors=False, progressText=None):
         """
         Call the remote server, if not connected, check connection before
 
@@ -372,15 +409,16 @@ class HTTPClient(QtCore.QObject):
         :param context: Pass a context to the response callback
         :param downloadProgressCallback: Callback called when received something, it can be an incomplete response
         :param showProgress: Display progress to the user
+        :params progressText: Text display to user in the progress dialog. None for auto generated
         :param ignoreErrors: Ignore connection error (usefull to not closing a connection when notification feed is broken)
         :returns: QNetworkReply
         """
 
         if self._connected:
-            return self.executeHTTPQuery(method, path, callback, body, context, downloadProgressCallback=downloadProgressCallback, showProgress=showProgress, ignoreErrors=ignoreErrors)
+            return self.executeHTTPQuery(method, path, callback, body, context, downloadProgressCallback=downloadProgressCallback, showProgress=showProgress, ignoreErrors=ignoreErrors, progressText=progressText)
         else:
             log.info("Connection to {}".format(self.url()))
-            query = partial(self._callbackConnect, method, path, callback, body, context, downloadProgressCallback=downloadProgressCallback, showProgress=showProgress, ignoreErrors=ignoreErrors)
+            query = partial(self._callbackConnect, method, path, callback, body, context, downloadProgressCallback=downloadProgressCallback, showProgress=showProgress, ignoreErrors=ignoreErrors, progressText=progressText)
             self.connect(query, callback)
 
     def _connectionError(self, callback, msg=""):
@@ -399,7 +437,7 @@ class HTTPClient(QtCore.QObject):
         if callback is not None:
             callback({"message": msg}, error=True, server=self)
 
-    def _callbackConnect(self, method, path, callback, body, original_context, params, error=False, **kwargs):
+    def _callbackConnect(self, method, path, callback, body, original_context, params, error=False, server=None, **kwargs):
         """
         Callback after /version response. Continue execution of query
 
@@ -444,7 +482,8 @@ class HTTPClient(QtCore.QObject):
             return
 
         self._connected = True
-        self.executeHTTPQuery(method, path, callback, body, context=original_context)
+        kwargs["context"] = original_context
+        self.executeHTTPQuery(method, path, callback, body, **kwargs)
         self._version = params["version"]
 
     def _addBodyToRequest(self, body, request):
@@ -489,7 +528,7 @@ class HTTPClient(QtCore.QObject):
             request.setRawHeader("Authorization", auth_string)
         return request
 
-    def executeHTTPQuery(self, method, path, callback, body, context={}, downloadProgressCallback=None, showProgress=True, ignoreErrors=False):
+    def executeHTTPQuery(self, method, path, callback, body, context={}, downloadProgressCallback=None, showProgress=True, ignoreErrors=False, progressText=None):
         """
         Call the remote server
 
@@ -500,16 +539,10 @@ class HTTPClient(QtCore.QObject):
         :param context: Pass a context to the response callback
         :param downloadProgressCallback: Callback called when received something, it can be an incomplete response
         :param showProgress: Display progress to the user
+        :param progressText: Text display to user in progress dialog. None for auto generated
         :param ignoreErrors: Ignore connection error (usefull to not closing a connection when notification feed is broken)
         :returns: QNetworkReply
         """
-
-        import copy
-        context = copy.copy(context)
-        query_id = str(uuid.uuid4())
-        context["query_id"] = query_id
-        if showProgress:
-            self.notify_progress_start_query(context["query_id"])
 
         try:
             ip = self._http_host.rsplit('%', 1)[0]
@@ -525,8 +558,6 @@ class HTTPClient(QtCore.QObject):
 
         request = self.addAuth(request)
 
-        request.setRawHeader("Content-Type", "application/json")
-        request.setRawHeader("Content-Length", str(len(body)))
         request.setRawHeader("User-Agent", "GNS3 QT Client v{version}".format(version=__version__))
 
         # By default QT doesn't support GET with body even if it's in the RFC that's why we need to use sendCustomRequest
@@ -534,7 +565,12 @@ class HTTPClient(QtCore.QObject):
 
         response = self._network_manager.sendCustomRequest(request, method, body)
 
+        import copy
+        context = copy.copy(context)
+        query_id = str(uuid.uuid4())
+        context["query_id"] = query_id
         if showProgress:
+            self.notify_progress_start_query(context["query_id"], progressText, response)
             response.uploadProgress.connect(partial(self.notify_progress_upload, query_id))
             response.downloadProgress.connect(partial(self.notify_progress_download, query_id))
 
@@ -600,7 +636,8 @@ class HTTPClient(QtCore.QObject):
             if error_code < 200:
                 if not ignore_errors:
                     self.close()
-                    callback({"message": error_message}, error=True, server=self, context=context)
+                    if callback is not None:
+                        callback({"message": error_message}, error=True, server=self, context=context)
                 return
             else:
                 status = response.attribute(QtNetwork.QNetworkRequest.HttpStatusCodeAttribute)
@@ -638,6 +675,46 @@ class HTTPClient(QtCore.QObject):
         if status == 400:
             raise HttpBadRequest(body)
 
+    def RAMLimit(self):
+        """
+        Returns the RAM limit for this server (used for RAM usage load balancing).
+
+        :returns: RAM limit (integer)
+        """
+
+        return self._ram_limit
+
+    def allocatedRAM(self):
+        """
+        Amount of allocated RAM on this server (used for RAM usage load balancing).
+
+        :returns: allocated RAM (integer)
+        """
+
+        return self._allocated_ram
+
+    def increaseAllocatedRAM(self, ram):
+        """
+        Increase the amount of allocated RAM on this server (used for RAM usage load balancing).
+
+        :param ram: amount of RAM (integer)
+        """
+
+        log.info("RAM usage on {} has increased by {} MB (total load is now {} MB)".format(self.url(), ram, self._allocated_ram + ram))
+        self._allocated_ram += ram
+
+    def decreaseAllocatedRAM(self, ram):
+        """
+        Decrease the amount of allocated RAM on this server (used for RAM usage load balancing).
+
+        :param ram: amount of RAM (integer)
+        """
+
+        log.info("RAM usage on {} has decreased by {} MB (total load is now {} MB)".format(self.url(), ram, self._allocated_ram - ram))
+        self._allocated_ram -= ram
+        if self._allocated_ram < 0:
+            self._allocated_ram = 0
+
     def dump(self):
         """
         Returns a representation of this server.
@@ -647,9 +724,12 @@ class HTTPClient(QtCore.QObject):
         server = self.settings()
         server["id"] = self._id
         server["local"] = self._local
-        server["cloud"] = self._cloud
+        server["vm"] = self._gns3_vm
+        #server["cloud"] = self._cloud
         if "user" in server and self._local:
             del server["user"]
+        if "password" in server:
+            del server["password"]
         if server["protocol"] == "https":
             server["accept_insecure_certificate"] = self._accept_insecure_certificate
         return server

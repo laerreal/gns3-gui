@@ -196,28 +196,17 @@ def main():
     app.setApplicationName("GNS3")
     app.setApplicationVersion(__version__)
 
+    # save client logging info to a file
+    logfile = os.path.normpath(os.path.join(os.path.dirname(QtCore.QSettings().fileName()), "gns3_gui.log"))
+
     # on debug enable logging to stdout
     if options.debug:
-        root_logger = init_logger(logging.DEBUG)
+        root_logger = init_logger(logging.DEBUG, logfile)
     else:
-        root_logger = init_logger(logging.INFO)
-
-    # save client logging info to a file
-    logfile = os.path.join(os.path.dirname(QtCore.QSettings().fileName()), "gns3_gui.log")
-    try:
-        try:
-            os.makedirs(os.path.dirname(QtCore.QSettings().fileName()))
-        except FileExistsError:
-            pass
-        handler = logging.FileHandler(logfile, "w")
-        root_logger.addHandler(handler)
-    except OSError as e:
-        log.warn("could not log to {}: {}".format(logfile, e))
-
-    log.info('Log level: {}'.format(logging.getLevelName(log.getEffectiveLevel())))
+        root_logger = init_logger(logging.INFO, logfile)
 
     # update the exception file path to have it in the same directory as the settings file.
-    exception_file_path = os.path.join(os.path.dirname(QtCore.QSettings().fileName()), exception_file_path)
+    exception_file_path = os.path.normpath(os.path.join(os.path.dirname(QtCore.QSettings().fileName()), exception_file_path))
 
     # Manage Ctrl + C or kill command
     def sigint_handler(*args):

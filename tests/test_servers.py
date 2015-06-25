@@ -15,8 +15,69 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+import json
+import pytest
 
 from gns3.servers import Servers
+
+
+def test_loadSettings_EmptySettings(local_config, tmpdir):
+
+    with open(str(tmpdir / "test.cfg"), "w+") as f:
+        json.dump({
+            "version": "1.4"
+        }, f)
+
+    local_config.setConfigFilePath(str(tmpdir / "test.cfg"))
+
+    Servers._instance = None
+    servers = Servers.instance()
+
+    assert servers.localServerSettings()["port"] == 8000
+    assert len(servers.localServerSettings()["password"]) == 64
+    assert len(servers.localServerSettings()["user"]) == 64
+
+    with open(str(tmpdir / "test.cfg")) as f:
+        conf = json.load(f)
+        assert servers.localServerSettings()["password"] == conf["Servers"]["local_server"]["password"]
+        assert servers.localServerSettings()["user"] == conf["Servers"]["local_server"]["user"]
+
+
+def test_loadSettings(tmpdir, local_config):
+    with open(str(tmpdir / "test.cfg"), "w+") as f:
+        json.dump({
+            "Servers": {
+                "local_server": {
+                    "auth": True,
+                    "user": "world",
+                    "password": "hello"
+                }
+            },
+            "version": "1.4"
+        }, f)
+
+    local_config.setConfigFilePath(str(tmpdir / "test.cfg"))
+    Servers._instance = None
+    servers = Servers.instance()
+
+    assert servers.localServerSettings()["password"] == "hello"
+
+
+def test_getRemoteServer():
+    servers = Servers.instance()
+    http_server = servers.getRemoteServer("http", "localhost", 8000, None)
+    assert http_server.protocol() == "http"
+    assert http_server.host() == "localhost"
+    assert http_server.port() == 8000
+    assert http_server.user() is None
+
+    ssh_server = servers.getRemoteServer("ssh", "127.0.0.1", 4000, "gns3", settings={"ssh_port": 22, "ssh_key": "/tmp/test.ssh"})
+    assert ssh_server.protocol() == "ssh"
+    assert ssh_server.host() == "127.0.0.1"
+    assert ssh_server.port() == 4000
+    assert ssh_server.user() == "gns3"
+    assert ssh_server.ssh_port() == 22
+    assert ssh_server.ssh_key() == "/tmp/test.ssh"
 
 
 def test_getServerFromString():
@@ -42,10 +103,11 @@ def test_getServerFromString_with_user():
 def test_getServerFromString_with_ssh():
 
     servers = Servers.instance()
-    servers._addRemoteServer("ssh", "127.0.0.1", "4000", user="root", ssh_port=22)
+    servers._addRemoteServer("ssh", "127.0.0.1", "4000", user="root", ssh_port=22, ssh_key="/tmp/test.ssh")
     server = servers.getServerFromString("ssh://root@127.0.0.1:22:4000")
     assert server.protocol() == "ssh"
     assert server.host() == "127.0.0.1"
     assert server.port() == 4000
     assert server.user() == "root"
     assert server.ssh_port() == 22
+    assert server.ssh_key() == "/tmp/test.ssh"

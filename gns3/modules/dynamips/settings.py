@@ -33,8 +33,7 @@ DYNAMIPS_SETTINGS = {
 IOS_ROUTER_SETTINGS = {
     "name": "",
     "image": "",
-    "default_symbol": ":/symbols/router.normal.svg",
-    "hover_symbol": ":/symbols/router.selected.svg",
+    "symbol": ":/symbols/router.svg",
     "category": Node.routers,
     "startup_config": "",
     "private_config": "",

@@ -99,9 +99,6 @@ class VPCS(Module):
         if not os.path.exists(self._settings["vpcs_path"]):
             self._settings["vpcs_path"] = self._findVPCS(self)
 
-        # keep the config file sync
-        self._saveSettings()
-
     def _saveSettings(self):
         """
         Saves the settings to the persistent settings file.
@@ -331,9 +328,8 @@ class VPCS(Module):
                 {"class": node_class.__name__,
                  "name": node_class.symbolName(),
                  "server": server,
-                 "categories": node_class.categories(),
-                 "default_symbol": self._settings["default_symbol"],
-                 "hover_symbol": self._settings["hover_symbol"]}
+                 "categories": [self._settings["category"]],
+                 "symbol": self._settings["symbol"]}
             )
             if ENABLE_CLOUD:
                 nodes.append(
@@ -341,8 +337,7 @@ class VPCS(Module):
                      "name": node_class.symbolName() + " (cloud)",
                      "server": "cloud",
                      "categories": node_class.categories(),
-                     "default_symbol": self._settings["default_symbol"],
-                     "hover_symbol": self._settings["hover_symbol"]}
+                     "symbol": self._settings["symbol"]}
                 )
         return nodes
 

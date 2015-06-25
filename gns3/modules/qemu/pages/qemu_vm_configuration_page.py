@@ -22,14 +22,15 @@ Configuration page for QEMU VMs.
 import os
 import sys
 import re
+
 from functools import partial
 from collections import OrderedDict
 from gns3.modules.qemu.dialogs.qemu_image_wizard import QemuImageWizard
-
-from gns3.qt import QtCore, QtWidgets
+from gns3.dialogs.symbol_selection_dialog import SymbolSelectionDialog
+from gns3.node import Node
+from gns3.qt import QtGui, QtCore, QtWidgets
 from gns3.servers import Servers
 from gns3.modules.module_error import ModuleError
-from gns3.main_window import MainWindow
 from gns3.dialogs.node_properties_dialog import ConfigurationError
 from gns3.image_manager import ImageManager
 
@@ -61,10 +62,15 @@ class QemuVMConfigurationPage(QtWidgets.QWidget, Ui_QemuVMConfigPageWidget):
         self.uiHdcDiskImageCreateToolButton.clicked.connect(self._hdcDiskImageCreateSlot)
         self.uiHddDiskImageCreateToolButton.clicked.connect(self._hddDiskImageCreateSlot)
 
+        self.uiSymbolToolButton.clicked.connect(self._symbolBrowserSlot)
         self.uiInitrdToolButton.clicked.connect(self._initrdBrowserSlot)
         self.uiKernelImageToolButton.clicked.connect(self._kernelImageBrowserSlot)
         self.uiActivateCPUThrottlingCheckBox.stateChanged.connect(self._cpuThrottlingChangedSlot)
         self.uiLegacyNetworkingCheckBox.stateChanged.connect(self._legacyNetworkingChangedSlot)
+
+        # add the categories
+        for name, category in Node.defaultCategories().items():
+            self.uiCategoryComboBox.addItem(name, category)
 
         self._legacy_devices = ("e1000", "i82551", "i82557b", "i82559er", "ne2k_pci", "pcnet", "rtl8139", "virtio")
         self._qemu_network_devices = OrderedDict([("e1000", "Intel Gigabit Ethernet"),
@@ -90,6 +96,19 @@ class QemuVMConfigurationPage(QtWidgets.QWidget, Ui_QemuVMConfigPageWidget):
 
         self._refreshQemuNetworkDevices()
 
+    def _symbolBrowserSlot(self):
+        """
+        Slot to open the symbol browser and select a new symbol.
+        """
+
+        symbol_path = self.uiSymbolLineEdit.text()
+        dialog = SymbolSelectionDialog(self, symbol=symbol_path)
+        dialog.show()
+        if dialog.exec_():
+            new_symbol_path = dialog.getSymbol()
+            self.uiSymbolLineEdit.setText(new_symbol_path)
+            self.uiSymbolLineEdit.setToolTip('<img src="{}"/>'.format(new_symbol_path))
+
     def _refreshQemuNetworkDevices(self, legacy_networking=False):
         """
         Refreshes the Qemu network device list.
@@ -108,7 +127,7 @@ class QemuVMConfigurationPage(QtWidgets.QWidget, Ui_QemuVMConfigPageWidget):
 
     @staticmethod
     def getImageDirectory():
-        return os.path.join(MainWindow.instance().imagesDirPath(), "QEMU")
+        return ImageManager.instance().getDirectoryForType("QEMU")
 
     @classmethod
     def getDiskImage(cls, parent, server):
@@ -125,7 +144,7 @@ class QemuVMConfigurationPage(QtWidgets.QWidget, Ui_QemuVMConfigPageWidget):
             QtWidgets.QMessageBox.critical(parent, "QEMU disk image", "Cannot read {}".format(path))
             return
 
-        path = ImageManager.askCopyUploadImage(parent, path, server, cls.getImageDirectory(), "/qemu/vms")
+        path = ImageManager.instance().askCopyUploadImage(parent, path, server, "QEMU")
 
         return path
 
@@ -275,9 +294,6 @@ class QemuVMConfigurationPage(QtWidgets.QWidget, Ui_QemuVMConfigPageWidget):
             QtWidgets.QMessageBox.critical(self, "Qemu binaries", "Error while getting the QEMU binaries: {}".format(e))
             self.uiQemuListComboBox.clear()
 
-        if self._server.isLocal() and not sys.platform.startswith("linux"):
-            self.uiKVMAccelerationCheckBox.hide()
-
         if not group:
             # set the device name
             self.uiNameLineEdit.setText(settings["name"])
@@ -310,8 +326,40 @@ class QemuVMConfigurationPage(QtWidgets.QWidget, Ui_QemuVMConfigPageWidget):
             self.uiKernelImageLineEdit.hide()
             self.uiKernelImageToolButton.hide()
 
+        if not node:
+            # load the symbol
+            self.uiSymbolLineEdit.setText(settings["symbol"])
+            self.uiSymbolLineEdit.setToolTip('<img src="{}"/>'.format(settings["symbol"]))
+
+            # load the category
+            index = self.uiCategoryComboBox.findData(settings["category"])
+            if index != -1:
+                self.uiCategoryComboBox.setCurrentIndex(index)
+
+            self.uiPortNameFormatLineEdit.setText(settings["port_name_format"])
+            self.uiPortSegmentSizeSpinBox.setValue(settings["port_segment_size"])
+            self.uiFirstPortNameLineEdit.setText(settings["first_port_name"])
+        else:
+            self.uiSymbolLabel.hide()
+            self.uiSymbolLineEdit.hide()
+            self.uiSymbolToolButton.hide()
+            self.uiCategoryComboBox.hide()
+            self.uiCategoryLabel.hide()
+            self.uiCategoryComboBox.hide()
+            self.uiPortNameFormatLabel.hide()
+            self.uiPortNameFormatLineEdit.hide()
+            self.uiPortSegmentSizeLabel.hide()
+            self.uiPortSegmentSizeSpinBox.hide()
+            self.uiFirstPortNameLabel.hide()
+            self.uiFirstPortNameLineEdit.hide()
+
+        index = self.uiConsoleTypeComboBox.findText(settings["console_type"])
+        if index != -1:
+            self.uiConsoleTypeComboBox.setCurrentIndex(index)
+
         self.uiKernelCommandLineEdit.setText(settings["kernel_command_line"])
         self.uiAdaptersSpinBox.setValue(settings["adapters"])
+
         self.uiLegacyNetworkingCheckBox.setChecked(settings["legacy_networking"])
 
         # load the MAC address setting
@@ -327,7 +375,6 @@ class QemuVMConfigurationPage(QtWidgets.QWidget, Ui_QemuVMConfigPageWidget):
             self.uiAdapterTypesComboBox.setCurrentIndex(index)
         self.uiRamSpinBox.setValue(settings["ram"])
 
-        self.uiKVMAccelerationCheckBox.setChecked(settings["kvm"])
         if settings["cpu_throttling"]:
             self.uiActivateCPUThrottlingCheckBox.setChecked(True)
             self.uiCPUThrottlingSpinBox.setValue(settings["cpu_throttling"])
@@ -372,6 +419,8 @@ class QemuVMConfigurationPage(QtWidgets.QWidget, Ui_QemuVMConfigPageWidget):
             if mac != ":::::":
                 if not re.search(r"""^([0-9a-fA-F]{2}[:]){5}[0-9a-fA-F]{2}$""", mac):
                     QtWidgets.QMessageBox.critical(self, "MAC address", "Invalid MAC address (format required: hh:hh:hh:hh:hh:hh)")
+                    if node:
+                        raise ConfigurationError()
                 else:
                     settings["mac_address"] = mac
             else:
@@ -389,10 +438,34 @@ class QemuVMConfigurationPage(QtWidgets.QWidget, Ui_QemuVMConfigPageWidget):
             del settings["kernel_image"]
             del settings["mac_address"]
 
+        if not node:
+            symbol_path = self.uiSymbolLineEdit.text()
+            pixmap = QtGui.QPixmap(symbol_path)
+            if pixmap.isNull():
+                QtWidgets.QMessageBox.critical(self, "Symbol", "Invalid file or format not supported")
+            else:
+                settings["symbol"] = symbol_path
+
+            settings["category"] = self.uiCategoryComboBox.itemData(self.uiCategoryComboBox.currentIndex())
+            port_name_format = self.uiPortNameFormatLineEdit.text()
+            if '{0}' not in port_name_format:
+                QtWidgets.QMessageBox.critical(self, "Port name format", "The format must contain at least {0}")
+            else:
+                settings["port_name_format"] = self.uiPortNameFormatLineEdit.text()
+
+            port_segment_size = self.uiPortSegmentSizeSpinBox.value()
+            if port_segment_size and '{1}' not in port_name_format:
+                QtWidgets.QMessageBox.critical(self, "Port name format", "The format must contain {1} if the segment size is not 0")
+            else:
+                settings["port_segment_size"] = port_segment_size
+
+            settings["first_port_name"] = self.uiFirstPortNameLineEdit.text().strip()
+
         if self.uiQemuListComboBox.count():
             qemu_path = self.uiQemuListComboBox.itemData(self.uiQemuListComboBox.currentIndex())
             settings["qemu_path"] = qemu_path
 
+        settings["console_type"] = self.uiConsoleTypeComboBox.currentText().lower()
         settings["adapter_type"] = self.uiAdapterTypesComboBox.itemData(self.uiAdapterTypesComboBox.currentIndex())
         settings["kernel_command_line"] = self.uiKernelCommandLineEdit.text()
 
@@ -407,7 +480,6 @@ class QemuVMConfigurationPage(QtWidgets.QWidget, Ui_QemuVMConfigPageWidget):
 
         settings["adapters"] = adapters
         settings["legacy_networking"] = self.uiLegacyNetworkingCheckBox.isChecked()
-        settings["kvm"] = self.uiKVMAccelerationCheckBox.isChecked()
         settings["acpi_shutdown"] = self.uiACPIShutdownCheckBox.isChecked()
         settings["ram"] = self.uiRamSpinBox.value()
         if self.uiActivateCPUThrottlingCheckBox.isChecked():

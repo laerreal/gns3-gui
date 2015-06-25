@@ -69,11 +69,17 @@ class NodesView(QtWidgets.QTreeWidget):
                 item = QtWidgets.QTreeWidgetItem(self)
                 item.setText(0, node["name"])
                 item.setData(0, QtCore.Qt.UserRole, node)
-                svg_renderer = QtSvg.QSvgRenderer(node["default_symbol"])
                 image = QtGui.QImage(32, 32, QtGui.QImage.Format_ARGB32)
                 # Set the ARGB to 0 to prevent rendering artifacts
                 image.fill(0x00000000)
-                svg_renderer.render(QtGui.QPainter(image))
+                svg_renderer = QtSvg.QSvgRenderer(node["symbol"])
+                if svg_renderer.isValid():
+                    svg_renderer.render(QtGui.QPainter(image))
+                else:
+                    #FIXME: Cannot read file '...', because: Encountered incorrectly encoded content. (line 1)
+                    image.load(node["symbol"])
+                    if image.isNull():
+                        continue
                 icon = QtGui.QIcon(QtGui.QPixmap.fromImage(image))
                 item.setIcon(0, icon)
 

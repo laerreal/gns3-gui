@@ -26,7 +26,6 @@ import sys
 
 from gns3.qt import QtCore, QtGui, QtWidgets
 from gns3.main_window import MainWindow
-from gns3.dialogs.symbol_selection_dialog import SymbolSelectionDialog
 from gns3.dialogs.configuration_dialog import ConfigurationDialog
 from gns3.cloud.utils import UploadFilesThread
 
@@ -55,7 +54,6 @@ class QemuVMPreferencesPage(QtWidgets.QWidget, Ui_QemuVMPreferencesPageWidget):
         self.uiEditQemuVMPushButton.clicked.connect(self._qemuVMEditSlot)
         self.uiDeleteQemuVMPushButton.clicked.connect(self._qemuVMDeleteSlot)
         self.uiQemuVMsTreeWidget.itemSelectionChanged.connect(self._qemuVMChangedSlot)
-        self.uiQemuVMsTreeWidget.itemPressed.connect(self._qemuVMPressedSlot)
 
     def _createSectionItem(self, name):
 
@@ -74,7 +72,9 @@ class QemuVMPreferencesPage(QtWidgets.QWidget, Ui_QemuVMPreferencesPageWidget):
         section_item = self._createSectionItem("General")
         QtWidgets.QTreeWidgetItem(section_item, ["VM name:", qemu_vm["name"]])
         QtWidgets.QTreeWidgetItem(section_item, ["Server:", qemu_vm["server"]])
+        QtWidgets.QTreeWidgetItem(section_item, ["Console type:", qemu_vm["console_type"]])
         QtWidgets.QTreeWidgetItem(section_item, ["Memory:", "{} MB".format(qemu_vm["ram"])])
+
         if qemu_vm["qemu_path"]:
             QtWidgets.QTreeWidgetItem(section_item, ["QEMU binary:", os.path.basename(qemu_vm["qemu_path"])])
 
@@ -93,6 +93,11 @@ class QemuVMPreferencesPage(QtWidgets.QWidget, Ui_QemuVMPreferencesPageWidget):
         # fill out the Network section
         section_item = self._createSectionItem("Network")
         QtWidgets.QTreeWidgetItem(section_item, ["Adapters:", str(qemu_vm["adapters"])])
+        QtWidgets.QTreeWidgetItem(section_item, ["Name format:", qemu_vm["port_name_format"]])
+        if qemu_vm["port_segment_size"]:
+            QtWidgets.QTreeWidgetItem(section_item, ["Segment size:", str(qemu_vm["port_segment_size"])])
+        if qemu_vm["first_port_name"]:
+            QtWidgets.QTreeWidgetItem(section_item, ["First port name:", qemu_vm["first_port_name"]])
         QtWidgets.QTreeWidgetItem(section_item, ["Type:", qemu_vm["adapter_type"]])
         if qemu_vm["mac_address"]:
             QtWidgets.QTreeWidgetItem(section_item, ["Base MAC address:", qemu_vm["mac_address"]])
@@ -109,8 +114,6 @@ class QemuVMPreferencesPage(QtWidgets.QWidget, Ui_QemuVMPreferencesPageWidget):
 
         # performance section
         section_item = self._createSectionItem("Optimizations")
-        if sys.platform.startswith("linux") or qemu_vm["server"] != "local":
-            QtWidgets.QTreeWidgetItem(section_item, ["KVM acceleration:", "{}".format(qemu_vm["kvm"])])
         if qemu_vm["cpu_throttling"]:
             QtWidgets.QTreeWidgetItem(section_item, ["CPU throttling:", "{}%".format(qemu_vm["cpu_throttling"])])
         else:
@@ -163,7 +166,7 @@ class QemuVMPreferencesPage(QtWidgets.QWidget, Ui_QemuVMPreferencesPageWidget):
 
             item = QtWidgets.QTreeWidgetItem(self.uiQemuVMsTreeWidget)
             item.setText(0, self._qemu_vms[key]["name"])
-            item.setIcon(0, QtGui.QIcon(self._qemu_vms[key]["default_symbol"]))
+            item.setIcon(0, QtGui.QIcon(self._qemu_vms[key]["symbol"]))
             item.setData(0, QtCore.Qt.UserRole, key)
             self._items.append(item)
             self.uiQemuVMsTreeWidget.setCurrentItem(item)
@@ -184,6 +187,8 @@ class QemuVMPreferencesPage(QtWidgets.QWidget, Ui_QemuVMPreferencesPageWidget):
             dialog = ConfigurationDialog(qemu_vm["name"], qemu_vm, QemuVMConfigurationPage(), parent=self)
             dialog.show()
             if dialog.exec_():
+                # update the icon
+                item.setIcon(0, QtGui.QIcon(qemu_vm["symbol"]))
                 if qemu_vm["name"] != item.text(0):
                     new_key = "{server}:{name}".format(server=qemu_vm["server"], name=qemu_vm["name"])
                     if new_key in self._qemu_vms:
@@ -212,55 +217,6 @@ class QemuVMPreferencesPage(QtWidgets.QWidget, Ui_QemuVMPreferencesPageWidget):
                 del self._qemu_vms[key]
                 self.uiQemuVMsTreeWidget.takeTopLevelItem(self.uiQemuVMsTreeWidget.indexOfTopLevelItem(item))
 
-    def _qemuVMPressedSlot(self, item, column):
-        """
-        Slot for item pressed.
-
-        :param item: ignored
-        :param column: ignored
-        """
-
-        if QtWidgets.QApplication.mouseButtons() & QtCore.Qt.RightButton:
-            self._showContextualMenu()
-
-    def _showContextualMenu(self):
-        """
-        Contextual menu.
-        """
-
-        menu = QtWidgets.QMenu()
-
-        change_symbol_action = QtWidgets.QAction("Change symbol", menu)
-        change_symbol_action.setIcon(QtGui.QIcon(":/icons/node_conception.svg"))
-        change_symbol_action.setEnabled(len(self.uiQemuVMsTreeWidget.selectedItems()) == 1)
-        change_symbol_action.triggered.connect(self._changeSymbolSlot)
-        menu.addAction(change_symbol_action)
-
-        delete_action = QtWidgets.QAction("Delete", menu)
-        delete_action.triggered.connect(self._qemuVMDeleteSlot)
-        menu.addAction(delete_action)
-
-        menu.exec_(QtGui.QCursor.pos())
-
-    def _changeSymbolSlot(self):
-        """
-        Change a symbol for a QEMU VM.
-        """
-
-        item = self.uiQemuVMsTreeWidget.currentItem()
-        if item:
-            key = item.data(0, QtCore.Qt.UserRole)
-            qemu_vm = self._qemu_vms[key]
-            dialog = SymbolSelectionDialog(self, symbol=qemu_vm["default_symbol"], category=qemu_vm["category"])
-            dialog.show()
-            if dialog.exec_():
-                normal_symbol, selected_symbol = dialog.getSymbols()
-                category = dialog.getCategory()
-                item.setIcon(0, QtGui.QIcon(normal_symbol))
-                qemu_vm["default_symbol"] = normal_symbol
-                qemu_vm["hover_symbol"] = selected_symbol
-                qemu_vm["category"] = category
-
     def loadPreferences(self):
         """
         Loads the QEMU VM preferences.
@@ -273,7 +229,7 @@ class QemuVMPreferencesPage(QtWidgets.QWidget, Ui_QemuVMPreferencesPageWidget):
         for key, qemu_vm in self._qemu_vms.items():
             item = QtWidgets.QTreeWidgetItem(self.uiQemuVMsTreeWidget)
             item.setText(0, qemu_vm["name"])
-            item.setIcon(0, QtGui.QIcon(qemu_vm["default_symbol"]))
+            item.setIcon(0, QtGui.QIcon(qemu_vm["symbol"]))
             item.setData(0, QtCore.Qt.UserRole, key)
             self._items.append(item)
 

@@ -50,8 +50,10 @@ class VMwareVM(VM):
         super().__init__(module, server, project)
         log.info("VMware VM instance is being created")
         self._linked_clone = False
-        self._export_directory = None
-        self._loading = False
+        self._port_name_format = None
+        self._port_segment_size = 0
+        self._first_port_name = None
+
         self._settings = {"name": "",
                           "vmx_path": "",
                           "console": None,
@@ -59,6 +61,7 @@ class VMwareVM(VM):
                           "adapter_type": VMWARE_VM_SETTINGS["adapter_type"],
                           "use_any_adapter": VMWARE_VM_SETTINGS["use_any_adapter"],
                           "headless": VMWARE_VM_SETTINGS["headless"],
+                          "acpi_shutdown": VMWARE_VM_SETTINGS["acpi_shutdown"],
                           "enable_remote_console": VMWARE_VM_SETTINGS["enable_remote_console"]}
 
     def _addAdapters(self, adapters):
@@ -68,17 +71,24 @@ class VMwareVM(VM):
         :param adapters: number of adapters
         """
 
+        interface_number = segment_number = 0
         for adapter_number in range(0, adapters):
-            adapter_name = EthernetPort.longNameType() + str(adapter_number)
-            short_name = EthernetPort.shortNameType() + str(adapter_number)
-            new_port = EthernetPort(adapter_name)
-            new_port.setShortName(short_name)
+            if self._first_port_name and adapter_number == 0:
+                port_name = self._first_port_name
+            else:
+                port_name = self._port_name_format.format(interface_number, segment_number)
+                interface_number += 1
+                if self._port_segment_size and interface_number % self._port_segment_size == 0:
+                    segment_number += 1
+                    interface_number = 0
+            new_port = EthernetPort(port_name)
             new_port.setAdapterNumber(adapter_number)
             new_port.setPortNumber(0)
             self._ports.append(new_port)
-            log.debug("Adapter {} has been added".format(adapter_name))
+            log.debug("Adapter {} with port {} has been added".format(adapter_number, port_name))
 
-    def setup(self, vmx_path, name=None, vm_id=None, linked_clone=False, additional_settings={}, base_name=None):
+    def setup(self, vmx_path, name=None, vm_id=None, port_name_format="Ethernet{0}",
+              port_segment_size=0, first_port_name="", linked_clone=False, additional_settings={}, base_name=None):
         """
         Setups this VMware VM.
 
@@ -110,6 +120,9 @@ class VMwareVM(VM):
         if vm_id:
             params["vm_id"] = vm_id
 
+        self._port_name_format = port_name_format
+        self._port_segment_size = port_segment_size
+        self._first_port_name = first_port_name
         params.update(additional_settings)
         self.httpPost("/vmware/vms", self._setupCallback, body=params)
 
@@ -121,20 +134,8 @@ class VMwareVM(VM):
         :param error: indicates an error (boolean)
         """
 
-        if error:
-            log.error("error while setting up {}: {}".format(self.name(), result["message"]))
-            self.server_error_signal.emit(self.id(), result["message"])
+        if not super()._setupCallback(result, error=error, **kwargs):
             return
-
-        self._vm_id = result["vm_id"]
-        # update the settings with what has been sent by the server
-        for name, value in result.items():
-            if name in self._settings and self._settings[name] != value:
-                log.info("VMware VM instance {} setting up and updating {} from '{}' to '{}'".format(self.name(),
-                                                                                                     name,
-                                                                                                     self._settings[name],
-                                                                                                     value))
-                self._settings[name] = value
 
         # create the ports on the client side
         self._addAdapters(self._settings.get("adapters", 0))
@@ -285,7 +286,13 @@ class VMwareVM(VM):
                      "type": self.__class__.__name__,
                      "description": str(self),
                      "properties": {},
+                     "port_name_format": self._port_name_format,
                      "server_id": self._server.id()}
+
+        if self._port_segment_size:
+            vmware_vm["port_segment_size"] = self._port_segment_size
+        if self._first_port_name:
+            vmware_vm["first_port_name"] = self._first_port_name
 
         # add the properties
         for name, value in self._settings.items():
@@ -308,9 +315,11 @@ class VMwareVM(VM):
         :param node_info: representation of the node (dictionary)
         """
 
-
         vm_id = node_info["vm_id"]
         linked_clone = node_info.get("linked_clone", False)
+        port_name_format = node_info.get("port_name_format", "Ethernet{0}")
+        port_segment_size = node_info.get("port_segment_size", 0)
+        first_port_name = node_info.get("first_port_name", "")
 
         vm_settings = {}
         for name, value in node_info["properties"].items():
@@ -324,7 +333,7 @@ class VMwareVM(VM):
         self._loading = True
         self._node_info = node_info
         self.loaded_signal.connect(self._updatePortSettings)
-        self.setup(vmx_path, name, vm_id, linked_clone, vm_settings)
+        self.setup(vmx_path, name, vm_id, port_name_format, port_segment_size, first_port_name, linked_clone, vm_settings)
 
     def _updatePortSettings(self):
         """
@@ -429,17 +438,7 @@ class VMwareVM(VM):
         :returns: symbol path (or resource).
         """
 
-        return ":/symbols/vmware_guest.normal.svg"
-
-    @staticmethod
-    def hoverSymbol():
-        """
-        Returns the symbol to use when this node is hovered.
-
-        :returns: symbol path (or resource).
-        """
-
-        return ":/symbols/vmware_guest.selected.svg"
+        return ":/symbols/vmware_guest.svg"
 
     @staticmethod
     def symbolName():

@@ -26,11 +26,13 @@ import uuid
 import glob
 import shutil
 import sys
+
 from .qt import QtGui, QtSvg, QtWidgets
-
-
 from functools import partial
 from .items.node_item import NodeItem
+from .items.svg_node_item import SvgNodeItem
+from .items.pixmap_node_item import PixmapNodeItem
+from .items.svg_node_item import SvgNodeItem
 from .items.link_item import LinkItem
 from .items.note_item import NoteItem
 from .items.rectangle_item import RectangleItem
@@ -417,12 +419,21 @@ class Topology:
                                 node["z"] = item.zValue()
                             if item.label():
                                 node["label"] = item.label().dump()
-                            default_symbol_path = item.defaultRenderer().objectName()
-                            if default_symbol_path:
-                                node["default_symbol"] = default_symbol_path
-                            hover_symbol_path = item.hoverRenderer().objectName()
-                            if hover_symbol_path:
-                                node["hover_symbol"] = hover_symbol_path
+                            symbol_path = None
+                            if isinstance(item, SvgNodeItem):
+                                symbol_path = item.renderer().objectName()
+                            elif isinstance(item, PixmapNodeItem):
+                                symbol_path = item.pixmapSymbolPath()
+                                symbol_dir_path = os.path.join(self._project.filesDir(), "project-files", "symbols")
+                                os.makedirs(symbol_dir_path, exist_ok=True)
+                                new_symbol_path = os.path.join(symbol_dir_path, os.path.basename(symbol_path))
+                                try:
+                                    shutil.copyfile(symbol_path, new_symbol_path)
+                                except shutil.SameFileError:
+                                    pass
+                                symbol_path = os.path.join("symbols", os.path.basename(symbol_path))
+                            if symbol_path:
+                                node["symbol"] = symbol_path
                 if isinstance(item, LinkItem):
                     if item.link() is not None:
                         for link in topology["topology"]["links"]:
@@ -642,10 +653,12 @@ class Topology:
             for topology_server in servers:
                 if "local" in topology_server and topology_server["local"]:
                     self._servers[topology_server["id"]] = server_manager.localServer()
-                if "vm" in topology_server and topology_server["vm"]:
-                    self._servers[topology_server["id"]] = server_manager.vmServer()
-                elif "cloud" in topology_server and topology_server["cloud"]:
-                    self._servers[topology_server["id"]] = server_manager.anyCloudServer()
+                elif "vm" in topology_server and topology_server["vm"]:
+                    gns3_vm_server = server_manager.vmServer()
+                    if gns3_vm_server is None:
+                        QtWidgets.QMessageBox.critical(main_window, "GNS3 VM", "The GNS3 VM is not running")
+                        return
+                    self._servers[topology_server["id"]] = gns3_vm_server
                 else:
                     protocol = topology_server.get("protocol", "http")
                     host = topology_server["host"]
@@ -708,8 +721,35 @@ class Topology:
                 # load the settings
                 node.load(topology_node)
 
+                # for backward compatibility before version 1.4
+                if "default_symbol" in topology_node:
+                    topology_node["symbol"] = topology_node["default_symbol"]
+                    topology_node["symbol"] = topology_node["symbol"][:-11] + ".svg" if topology_node["symbol"].endswith("normal.svg") else topology_node["symbol"]
+
+                if "symbol" in topology_node:
+                    symbol_path = topology_node["symbol"]
+                    renderer = QtSvg.QSvgRenderer(symbol_path)
+                    if renderer.isValid():
+                        node_item = SvgNodeItem(node, symbol_path)
+                    else:
+                        updated_symbol_path = os.path.join(self._project.filesDir(), "project-files", topology_node["symbol"])
+                        if os.path.exists(updated_symbol_path):
+                            symbol_path = updated_symbol_path
+                        else:
+                            symbol_path = topology_node["symbol"]
+                        symbol_path = os.path.normpath(symbol_path)
+                        if not os.path.isfile(symbol_path):
+                            topology_file_errors.append("Path to symbol {} doesn't exist".format(symbol_path))
+                        pixmap = QtGui.QPixmap(symbol_path)
+                        if not pixmap.isNull():
+                            node_item = PixmapNodeItem(node,  symbol_path)
+                        else:
+                            topology_file_errors.append("Symbol {} is invalid".format(symbol_path))
+                            node_item = SvgNodeItem(node)
+                else:
+                    node_item = SvgNodeItem(node)
+
                 # create the node item and restore GUI settings
-                node_item = NodeItem(node)
                 node_item.setPos(topology_node["x"], topology_node["y"])
 
                 # create the node label if present
@@ -722,21 +762,6 @@ class Topology:
 
                 if "z" in topology_node:
                     node_item.setZValue(topology_node["z"])
-
-                if "default_symbol" in topology_node:
-                    path = topology_node["default_symbol"]
-                    default_renderer = QtSvg.QSvgRenderer(path)
-                    if default_renderer.isValid():
-                        default_renderer.setObjectName(path)
-                        node_item.setDefaultRenderer(default_renderer)
-
-                if "hover_symbol" in topology_node:
-                    path = topology_node["hover_symbol"]
-                    hover_renderer = QtSvg.QSvgRenderer(path)
-                    if hover_renderer.isValid() and default_renderer.isValid():
-                        # default renderer must be valid too
-                        hover_renderer.setObjectName(path)
-                        node_item.setHoverRenderer(hover_renderer)
 
                 view.scene().addItem(node_item)
                 main_window.uiTopologySummaryTreeWidget.addNode(node)

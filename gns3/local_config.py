@@ -19,6 +19,7 @@ import sys
 import os
 import json
 import shutil
+import copy
 
 from .qt import QtCore
 from .version import __version__
@@ -45,10 +46,9 @@ class LocalConfig(QtCore.QObject):
         else:
             filename = "gns3_gui.conf"
 
-        if sys.platform.startswith("darwin"):
-            appname = "gns3.net"
-        else:
-            appname = "GNS3"
+        self._migrateOldConfig()
+
+        appname = "GNS3"
 
         if sys.platform.startswith("win"):
 
@@ -96,6 +96,22 @@ class LocalConfig(QtCore.QObject):
         timer.setInterval(1000)  #  milliseconds
         timer.start()
 
+    def _migrateOldConfig(self):
+        """
+        Migrate pre 1.4 config
+        """
+
+        # In < 1.4 on Mac the config was in a gns3.net directory
+        # We have move to same location as Linux
+        if sys.platform.startswith("darwin"):
+            old_path = os.path.join(os.path.expanduser("~"), ".config", "gns3.net")
+            new_path = os.path.join(os.path.expanduser("~"), ".config", "GNS3")
+            if os.path.exists(old_path) and not os.path.exists(new_path):
+                try:
+                    shutil.copytree(old_path, new_path)
+                except OSError:
+                    pass
+
     def _readConfig(self, config_path):
         """
         Read the configuration file.
@@ -107,6 +123,12 @@ class LocalConfig(QtCore.QObject):
                 self._settings.update(config)
         except (ValueError, OSError) as e:
             log.error("Could not read the config file {}: {}".format(self._config_file, e))
+
+        # Update already loaded section
+        for section in self._settings.keys():
+            if isinstance(self._settings[section], dict):
+                self.loadSectionSettings(section, self._settings[section])
+
         return dict()
 
     def _writeConfig(self):
@@ -147,8 +169,8 @@ class LocalConfig(QtCore.QObject):
         :returns: path to the config file.
         """
 
-        self._readConfig(self._config_file)
         self._config_file = config_file
+        self._readConfig(self._config_file)
 
     def settings(self):
         """
@@ -157,7 +179,7 @@ class LocalConfig(QtCore.QObject):
         :returns: settings (dict)
         """
 
-        return self._settings
+        return copy.deepcopy(self._settings)
 
     def setSettings(self, settings):
         """
@@ -166,8 +188,8 @@ class LocalConfig(QtCore.QObject):
         :param settings: settings to save (dict)
         """
 
-        self._settings.update(settings)
         if self._settings != settings:
+            self._settings.update(settings)
             self._writeConfig()
 
     def loadSectionSettings(self, section, default_settings):
@@ -181,15 +203,26 @@ class LocalConfig(QtCore.QObject):
 
         settings = self.settings().get(section, dict())
 
-        # use default values for missing settings
-        for name, value in default_settings.items():
-            if name not in settings:
-                settings[name] = value
+        def _copySettings(local, default):
+            """
+            Copy only existing settings, ignore the other.
+            Add default values if require.
+            """
+
+            # use default values for missing settings
+            for name, value in default.items():
+                if name not in local:
+                    local[name] = value
+                elif isinstance(value, dict):
+                    local[name] = _copySettings(local[name], default[name])
+            return local
+
+        settings = _copySettings(settings, default_settings)
 
         if section not in self._settings:
             self._settings[section] = {}
         self._settings[section].update(settings)
-        return settings
+        return copy.deepcopy(settings)
 
     def saveSectionSettings(self, section, settings):
         """
@@ -201,10 +234,13 @@ class LocalConfig(QtCore.QObject):
 
         if section not in self._settings:
             self._settings[section] = {}
+
         if self._settings[section] != settings:
             self._settings[section].update(settings)
             log.info("Section %s has changed. Saving configuration", section)
             self._writeConfig()
+        else:
+            log.debug("Section %s has not changed. Skip saving configuration", section)
 
     @staticmethod
     def instance():
@@ -214,6 +250,6 @@ class LocalConfig(QtCore.QObject):
         :returns: instance of LocalConfig
         """
 
-        if not hasattr(LocalConfig, "_instance"):
+        if not hasattr(LocalConfig, "_instance") or LocalConfig._instance is None:
             LocalConfig._instance = LocalConfig()
         return LocalConfig._instance

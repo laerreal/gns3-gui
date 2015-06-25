@@ -28,7 +28,6 @@ import logging
 
 from gns3.qt import QtCore, QtGui, QtWidgets
 from gns3.main_window import MainWindow
-from gns3.dialogs.symbol_selection_dialog import SymbolSelectionDialog
 from gns3.dialogs.configuration_dialog import ConfigurationDialog
 from gns3.cloud.utils import UploadFilesThread
 from gns3.utils.progress_dialog import ProgressDialog
@@ -66,7 +65,6 @@ class IOSRouterPreferencesPage(QtWidgets.QWidget, Ui_IOSRouterPreferencesPageWid
         self.uiEditIOSRouterPushButton.clicked.connect(self._iosRouterEditSlot)
         self.uiDeleteIOSRouterPushButton.clicked.connect(self._iosRouterDeleteSlot)
         self.uiIOSRoutersTreeWidget.itemSelectionChanged.connect(self._iosRouterChangedSlot)
-        self.uiIOSRoutersTreeWidget.itemPressed.connect(self._iosRouterPressedSlot)
         self.uiDecompressIOSPushButton.clicked.connect(self._decompressIOSSlot)
 
     def _iosRouterChangedSlot(self):
@@ -149,7 +147,7 @@ class IOSRouterPreferencesPage(QtWidgets.QWidget, Ui_IOSRouterPreferencesPageWid
             self._ios_routers[key].update(ios_settings)
             item = QtWidgets.QTreeWidgetItem(self.uiIOSRoutersTreeWidget)
             item.setText(0, self._ios_routers[key]["name"])
-            item.setIcon(0, QtGui.QIcon(self._ios_routers[key]["default_symbol"]))
+            item.setIcon(0, QtGui.QIcon(self._ios_routers[key]["symbol"]))
             item.setData(0, QtCore.Qt.UserRole, key)
             self._items.append(item)
             self.uiIOSRoutersTreeWidget.setCurrentItem(item)
@@ -166,6 +164,8 @@ class IOSRouterPreferencesPage(QtWidgets.QWidget, Ui_IOSRouterPreferencesPageWid
             dialog = ConfigurationDialog(ios_router["name"], ios_router, IOSRouterConfigurationPage(), parent=self)
             dialog.show()
             if dialog.exec_():
+                # update the icon
+                item.setIcon(0, QtGui.QIcon(ios_router["symbol"]))
                 if ios_router["name"] != item.text(0):
                     # rename the IOS router
                     new_key = "{server}:{name}".format(server=ios_router["server"], name=ios_router["name"])
@@ -205,7 +205,7 @@ class IOSRouterPreferencesPage(QtWidgets.QWidget, Ui_IOSRouterPreferencesPageWid
 
     @staticmethod
     def getImageDirectory():
-        return os.path.join(MainWindow.instance().imagesDirPath(), "IOS")
+        return ImageManager.instance().getDirectoryForType("DYNAMIPS")
 
     @classmethod
     def getIOSImage(cls, parent, server):
@@ -278,7 +278,7 @@ class IOSRouterPreferencesPage(QtWidgets.QWidget, Ui_IOSRouterPreferencesPageWid
                 if progress_dialog.exec_() is not False:
                     path = decompressed_image_path
 
-        path = ImageManager.askCopyUploadImage(parent, path, server, cls.getImageDirectory(), "/dynamips/vms")
+        path = ImageManager.instance().askCopyUploadImage(parent, path, server, "DYNAMIPS")
 
         return path
 
@@ -414,48 +414,6 @@ class IOSRouterPreferencesPage(QtWidgets.QWidget, Ui_IOSRouterPreferencesPageWid
         self.uiIOSRouterInfoTreeWidget.resizeColumnToContents(0)
         self.uiIOSRouterInfoTreeWidget.resizeColumnToContents(1)
 
-    def _iosRouterPressedSlot(self, item, column):
-        """
-        Slot for item pressed.
-
-        :param item: ignored
-        :param column: ignored
-        """
-
-        if QtWidgets.QApplication.mouseButtons() & QtCore.Qt.RightButton:
-            self._showContextualMenu()
-
-    def _showContextualMenu(self):
-        """
-        Contextual menu.
-        """
-
-        menu = QtWidgets.QMenu()
-        change_symbol_action = QtWidgets.QAction("Change symbol", menu)
-        change_symbol_action.setIcon(QtGui.QIcon(":/icons/node_conception.svg"))
-        self.connect(change_symbol_action, QtCore.SIGNAL('triggered()'), self._changeSymbolSlot)
-        menu.addAction(change_symbol_action)
-        menu.exec_(QtGui.QCursor.pos())
-
-    def _changeSymbolSlot(self):
-        """
-        Change a symbol for an IOS router.
-        """
-
-        item = self.uiIOSRoutersTreeWidget.currentItem()
-        if item:
-            key = item.data(0, QtCore.Qt.UserRole)
-            ios_router = self._ios_routers[key]
-            dialog = SymbolSelectionDialog(self, symbol=ios_router["default_symbol"], category=ios_router["category"])
-            dialog.show()
-            if dialog.exec_():
-                normal_symbol, selected_symbol = dialog.getSymbols()
-                category = dialog.getCategory()
-                item.setIcon(0, QtGui.QIcon(normal_symbol))
-                ios_router["default_symbol"] = normal_symbol
-                ios_router["hover_symbol"] = selected_symbol
-                ios_router["category"] = category
-
     def loadPreferences(self):
         """
         Loads the IOS router preferences.
@@ -468,7 +426,7 @@ class IOSRouterPreferencesPage(QtWidgets.QWidget, Ui_IOSRouterPreferencesPageWid
         for key, ios_router in self._ios_routers.items():
             item = QtWidgets.QTreeWidgetItem(self.uiIOSRoutersTreeWidget)
             item.setText(0, ios_router["name"])
-            item.setIcon(0, QtGui.QIcon(ios_router["default_symbol"]))
+            item.setIcon(0, QtGui.QIcon(ios_router["symbol"]))
             item.setData(0, QtCore.Qt.UserRole, key)
             self._items.append(item)
 

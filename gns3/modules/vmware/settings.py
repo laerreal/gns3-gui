@@ -37,13 +37,16 @@ VMWARE_SETTINGS = {
 
 VMWARE_VM_SETTINGS = {
     "vmx_path": "",
-    "default_symbol": ":/symbols/vmware_guest.normal.svg",
-    "hover_symbol": ":/symbols/vmware_guest.selected.svg",
+    "symbol": ":/symbols/vmware_guest.svg",
     "category": Node.end_devices,
+    "port_name_format": "Ethernet{0}",
+    "port_segment_size": 0,
+    "first_port_name": "",
     "adapters": 1,
     "adapter_type": "default",
     "use_any_adapter": False,
     "headless": False,
+    "acpi_shutdown": False,
     "enable_remote_console": False,
     "linked_base": False,
     "server": "local"

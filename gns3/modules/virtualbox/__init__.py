@@ -23,7 +23,7 @@ import os
 import sys
 import shutil
 
-from gns3.qt import QtCore, QtWidgets
+from gns3.qt import QtWidgets
 from gns3.local_server_config import LocalServerConfig
 from gns3.local_config import LocalConfig
 
@@ -55,7 +55,6 @@ class VirtualBox(Module):
     def configChangedSlot(self):
         # load the settings
         self._loadSettings()
-        self._loadVirtualBoxVMs()
 
     @staticmethod
     def _findVBoxManage(self):
@@ -91,8 +90,7 @@ class VirtualBox(Module):
         if not os.path.exists(self._settings["vboxmanage_path"]):
             self._settings["vboxmanage_path"] = self._findVBoxManage(self)
 
-        # keep the config file sync
-        self._saveSettings()
+        self._loadVirtualBoxVMs()
 
     def _saveSettings(self):
         """
@@ -128,10 +126,10 @@ class VirtualBox(Module):
                     continue
                 vm_settings = VBOX_VM_SETTINGS.copy()
                 vm_settings.update(vm)
+                # for backward compatibility before version 1.4
+                vm_settings["symbol"] = vm_settings.get("default_symbol", vm_settings["symbol"])
+                vm_settings["symbol"] = vm_settings["symbol"][:-11] + ".svg" if vm_settings["symbol"].endswith("normal.svg") else vm_settings["symbol"]
                 self._virtualbox_vms[key] = vm_settings
-
-        # keep things sync
-        self._saveVirtualBoxVMs()
 
     def _saveVirtualBoxVMs(self):
         """
@@ -265,7 +263,15 @@ class VirtualBox(Module):
                 vm_settings[setting_name] = value
 
         vmname = self._virtualbox_vms[vm]["vmname"]
-        node.setup(vmname, linked_clone=linked_base, additional_settings=vm_settings)
+        port_name_format = self._virtualbox_vms[vm]["port_name_format"]
+        port_segment_size = self._virtualbox_vms[vm]["port_segment_size"]
+        first_port_name = self._virtualbox_vms[vm]["first_port_name"]
+        node.setup(vmname,
+                   port_name_format=port_name_format,
+                   port_segment_size=port_segment_size,
+                   first_port_name=first_port_name,
+                   linked_clone=linked_base,
+                   additional_settings=vm_settings)
 
     def reset(self):
         """
@@ -309,8 +315,7 @@ class VirtualBox(Module):
                 {"class": VirtualBoxVM.__name__,
                  "name": vbox_vm["vmname"],
                  "server": vbox_vm["server"],
-                 "default_symbol": vbox_vm["default_symbol"],
-                 "hover_symbol": vbox_vm["hover_symbol"],
+                 "symbol": vbox_vm["symbol"],
                  "categories": [vbox_vm["category"]]}
             )
         return nodes

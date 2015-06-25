@@ -63,7 +63,7 @@ class VirtualBoxVMWizard(QtWidgets.QWizard, Ui_VirtualBoxVMWizard):
             for server in Servers.instance().remoteServers().values():
                 self.uiRemoteServersComboBox.addItem("{}".format(server.url()), server)
         if self.page(page_id) == self.uiVirtualBoxWizardPage:
-            self._server.get("/virtualbox/vms", self._getVirtualBoxVMsFromServerCallback)
+            self._server.get("/virtualbox/vms", self._getVirtualBoxVMsFromServerCallback, progressText="List VirtualBox VMs")
 
     def _getVirtualBoxVMsFromServerCallback(self, result, error=False, **kwargs):
         """
@@ -102,7 +102,7 @@ class VirtualBoxVMWizard(QtWidgets.QWizard, Ui_VirtualBoxVMWizard):
                 server = Servers.instance().localServer()
             else:
                 if not Servers.instance().remoteServers():
-                    QtWidgets.QMessageBox.critical(self, "Remote server", "There is no remote server registered in VirtualBox preferences")
+                    QtWidgets.QMessageBox.critical(self, "Remote server", "There is no remote server registered in your preferences")
                     return False
                 server = self.uiRemoteServersComboBox.itemData(self.uiRemoteServersComboBox.currentIndex())
             self._server = server

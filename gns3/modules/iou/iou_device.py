@@ -28,6 +28,7 @@ from gns3.packet_capture import PacketCapture
 from gns3.ports.ethernet_port import EthernetPort
 from gns3.ports.serial_port import SerialPort
 from gns3.utils.normalize_filename import normalize_filename
+from gns3.image_manager import ImageManager
 from .settings import IOU_DEVICE_SETTINGS
 
 import logging
@@ -53,6 +54,7 @@ class IOUDevice(VM):
         self._vm_id = None
         self._settings = {"name": "",
                           "path": "",
+                          "md5sum": "",
                           "startup_config": "",
                           "private_config": "",
                           "l1_keepalives": False,
@@ -164,24 +166,8 @@ class IOUDevice(VM):
         :param error: indicates an error (boolean)
         """
 
-        if error:
-            log.error("error while setting up {}: {}".format(self.name(), result["message"]))
-            self.server_error_signal.emit(self.id(), result["message"])
+        if not super()._setupCallback(result, error=error, **kwargs):
             return
-
-        self._vm_id = result["vm_id"]
-        if not self._vm_id:
-            self.error_signal.emit(self.id(), "returned ID from server is null")
-            return
-
-        # update the settings using the defaults sent by the server
-        for name, value in result.items():
-            if name in self._settings and self._settings[name] != value:
-                log.info("IOU instance {} setting up and updating {} from '{}' to '{}'".format(self.name(),
-                                                                                               name,
-                                                                                               self._settings[name],
-                                                                                               value))
-                self._settings[name] = value
 
         # create the ports on the client side
         self._addAdapters(self._settings.get("ethernet_adapters", 0), self._settings.get("serial_adapters", 0))
@@ -193,6 +179,10 @@ class IOUDevice(VM):
             log.info("IOU instance {} has been created".format(self.name()))
             self.created_signal.emit(self.id())
             self._module.addNode(self)
+
+        # The image is missing on remote server
+        if "md5sum" not in result or result["md5sum"] is None or len(result["md5sum"]) == 0:
+            ImageManager.instance().addMissingImage(result["path"], self._server, "IOU")
 
     def update(self, new_settings):
         """
@@ -409,15 +399,6 @@ class IOUDevice(VM):
 
         return iou
 
-    def _imageFilesDir(self):
-        """
-        Returns the location of IOU images.
-        """
-
-        servers = Servers.instance()
-        local_server = servers.localServerSettings()
-        return os.path.join(local_server["images_path"], "IOU")
-
     def load(self, node_info):
         """
         Loads an IOU device representation
@@ -444,7 +425,7 @@ class IOUDevice(VM):
 
         if self.server().isLocal():
             # check and update the path to use the image in the images directory
-            updated_path = os.path.join(self._imageFilesDir(), path)
+            updated_path = os.path.join(ImageManager.instance().getDirectoryForType("IOU"), path)
             if os.path.isfile(updated_path):
                 path = updated_path
             elif not os.path.isfile(path):
@@ -701,17 +682,7 @@ class IOUDevice(VM):
         :returns: symbol path (or resource).
         """
 
-        return ":/symbols/multilayer_switch.normal.svg"
-
-    @staticmethod
-    def hoverSymbol():
-        """
-        Returns the symbol to use when this node is hovered.
-
-        :returns: symbol path (or resource).
-        """
-
-        return ":/symbols/multilayer_switch.selected.svg"
+        return ":/symbols/multilayer_switch.svg"
 
     @staticmethod
     def symbolName():

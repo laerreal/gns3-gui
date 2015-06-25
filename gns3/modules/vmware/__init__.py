@@ -55,7 +55,6 @@ class VMware(Module):
     def configChangedSlot(self):
         # load the settings
         self._loadSettings()
-        self._loadVMwareVMs()
 
     @staticmethod
     def _findVmrun(self):
@@ -66,8 +65,14 @@ class VMware(Module):
         """
 
         if sys.platform.startswith("win"):
-            # TODO: find vmrun on Windows
-            vmrun_path = "VBoxManage.exe"
+            vmrun_path = shutil.which("vmrun")
+            if vmrun_path is None:
+                vmrun_ws = os.path.expandvars(r"%PROGRAMFILES(X86)%\VMware\VMware Workstation\vmrun.exe")
+                vmrun_vix = os.path.expandvars(r"%PROGRAMFILES(X86)%\VMware\VMware VIX\vmrun.exe")
+                if os.path.exists(vmrun_ws):
+                    vmrun_path = vmrun_ws
+                elif os.path.exists(vmrun_vix):
+                    vmrun_path = vmrun_vix
         elif sys.platform.startswith("darwin"):
             vmrun_path = "/Applications/VMware Fusion.app/Contents/Library/vmrun"
         else:
@@ -88,8 +93,7 @@ class VMware(Module):
         if not os.path.exists(self._settings["vmrun_path"]):
             self._settings["vmrun_path"] = self._findVmrun(self)
 
-        # keep the config file sync
-        self._saveSettings()
+        self._loadVMwareVMs()
 
     def _saveSettings(self):
         """
@@ -128,10 +132,10 @@ class VMware(Module):
                     continue
                 vm_settings = VMWARE_VM_SETTINGS.copy()
                 vm_settings.update(vm)
+                # for backward compatibility before version 1.4
+                vm_settings["symbol"] = vm_settings.get("default_symbol", vm_settings["symbol"])
+                vm_settings["symbol"] = vm_settings["symbol"][:-11] + ".svg" if vm_settings["symbol"].endswith("normal.svg") else vm_settings["symbol"]
                 self._vmware_vms[key] = vm_settings
-
-        # keep things sync
-        self._saveVMwareVMs()
 
     def _saveVMwareVMs(self):
         """
@@ -263,7 +267,16 @@ class VMware(Module):
 
         vmx_path = vm_settings.pop("vmx_path")
         name = vm_settings.pop("name")
-        node.setup(vmx_path, linked_clone=linked_base, additional_settings=vm_settings, base_name=name)
+        port_name_format = self._vmware_vms[vm]["port_name_format"]
+        port_segment_size = self._vmware_vms[vm]["port_segment_size"]
+        first_port_name = self._vmware_vms[vm]["first_port_name"]
+        node.setup(vmx_path,
+                   port_name_format=port_name_format,
+                   port_segment_size=port_segment_size,
+                   first_port_name=first_port_name,
+                   linked_clone=linked_base,
+                   additional_settings=vm_settings,
+                   base_name=name)
 
     def reset(self):
         """
@@ -307,8 +320,7 @@ class VMware(Module):
                 {"class": VMwareVM.__name__,
                  "name": vmware_vm["name"],
                  "server": vmware_vm["server"],
-                 "default_symbol": vmware_vm["default_symbol"],
-                 "hover_symbol": vmware_vm["hover_symbol"],
+                 "symbol": vmware_vm["symbol"],
                  "categories": [vmware_vm["category"]]}
             )
         return nodes

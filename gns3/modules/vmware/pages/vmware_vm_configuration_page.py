@@ -19,8 +19,11 @@
 Configuration page for VMware VMs.
 """
 
-from gns3.qt import QtWidgets
+from gns3.qt import QtGui, QtWidgets
 from gns3.dialogs.node_properties_dialog import ConfigurationError
+from gns3.dialogs.symbol_selection_dialog import SymbolSelectionDialog
+from gns3.node import Node
+
 from ..ui.vmware_vm_configuration_page_ui import Ui_VMwareVMConfigPageWidget
 
 
@@ -35,6 +38,7 @@ class VMwareVMConfigurationPage(QtWidgets.QWidget, Ui_VMwareVMConfigPageWidget):
         super().__init__()
         self.setupUi(self)
 
+        self.uiSymbolToolButton.clicked.connect(self._symbolBrowserSlot)
         self.uiAdapterTypesComboBox.clear()
         self.uiAdapterTypesComboBox.addItems(["default",
                                               "e1000",
@@ -44,6 +48,23 @@ class VMwareVMConfigurationPage(QtWidgets.QWidget, Ui_VMwareVMConfigPageWidget):
                                               "vmxnet",
                                               "vmxnet2",
                                               "vmxnet3"])
+
+        # add the categories
+        for name, category in Node.defaultCategories().items():
+            self.uiCategoryComboBox.addItem(name, category)
+
+    def _symbolBrowserSlot(self):
+        """
+        Slot to open the symbol browser and select a new symbol.
+        """
+
+        symbol_path = self.uiSymbolLineEdit.text()
+        dialog = SymbolSelectionDialog(self, symbol=symbol_path)
+        dialog.show()
+        if dialog.exec_():
+            new_symbol_path = dialog.getSymbol()
+            self.uiSymbolLineEdit.setText(new_symbol_path)
+            self.uiSymbolLineEdit.setToolTip('<img src="{}"/>'.format(new_symbol_path))
 
     def loadSettings(self, settings, node=None, group=False):
         """
@@ -82,12 +103,40 @@ class VMwareVMConfigurationPage(QtWidgets.QWidget, Ui_VMwareVMConfigPageWidget):
             #self.uiVMListLabel.hide()
             #self.uiVMListComboBox.hide()
 
+        if not node:
+            # load the symbol
+            self.uiSymbolLineEdit.setText(settings["symbol"])
+            self.uiSymbolLineEdit.setToolTip('<img src="{}"/>'.format(settings["symbol"]))
+
+            # load the category
+            index = self.uiCategoryComboBox.findData(settings["category"])
+            if index != -1:
+                self.uiCategoryComboBox.setCurrentIndex(index)
+
+            self.uiPortNameFormatLineEdit.setText(settings["port_name_format"])
+            self.uiPortSegmentSizeSpinBox.setValue(settings["port_segment_size"])
+            self.uiFirstPortNameLineEdit.setText(settings["first_port_name"])
+        else:
+            self.uiSymbolLabel.hide()
+            self.uiSymbolLineEdit.hide()
+            self.uiSymbolToolButton.hide()
+            self.uiCategoryComboBox.hide()
+            self.uiCategoryLabel.hide()
+            self.uiCategoryComboBox.hide()
+            self.uiPortNameFormatLabel.hide()
+            self.uiPortNameFormatLineEdit.hide()
+            self.uiPortSegmentSizeLabel.hide()
+            self.uiPortSegmentSizeSpinBox.hide()
+            self.uiFirstPortNameLabel.hide()
+            self.uiFirstPortNameLineEdit.hide()
+
         self.uiAdaptersSpinBox.setValue(settings["adapters"])
         index = self.uiAdapterTypesComboBox.findText(settings["adapter_type"])
         if index != -1:
             self.uiAdapterTypesComboBox.setCurrentIndex(index)
         self.uiUseAnyAdapterCheckBox.setChecked(settings["use_any_adapter"])
         self.uiHeadlessModeCheckBox.setChecked(settings["headless"])
+        self.uiACPIShutdownCheckBox.setChecked(settings["acpi_shutdown"])
         self.uiEnableConsoleCheckBox.setChecked(settings["enable_remote_console"])
 
     def saveSettings(self, settings, node=None, group=False):
@@ -123,9 +172,33 @@ class VMwareVMConfigurationPage(QtWidgets.QWidget, Ui_VMwareVMConfigPageWidget):
             del settings["console"]
             del settings["enable_remote_console"]
 
+        if not node:
+            symbol_path = self.uiSymbolLineEdit.text()
+            pixmap = QtGui.QPixmap(symbol_path)
+            if pixmap.isNull():
+                QtWidgets.QMessageBox.critical(self, "Symbol", "Invalid file or format not supported")
+            else:
+                settings["symbol"] = symbol_path
+
+            settings["category"] = self.uiCategoryComboBox.itemData(self.uiCategoryComboBox.currentIndex())
+            port_name_format = self.uiPortNameFormatLineEdit.text()
+            if '{0}' not in port_name_format:
+                QtWidgets.QMessageBox.critical(self, "Port name format", "The format must contain at least {0}")
+            else:
+                settings["port_name_format"] = self.uiPortNameFormatLineEdit.text()
+
+            port_segment_size = self.uiPortSegmentSizeSpinBox.value()
+            if port_segment_size and '{1}' not in port_name_format:
+                QtWidgets.QMessageBox.critical(self, "Port name format", "The format must contain {1} if the segment size is not 0")
+            else:
+                settings["port_segment_size"] = port_segment_size
+
+            settings["first_port_name"] = self.uiFirstPortNameLineEdit.text().strip()
+
         settings["adapter_type"] = self.uiAdapterTypesComboBox.currentText()
         settings["use_any_adapter"] = self.uiUseAnyAdapterCheckBox.isChecked()
         settings["headless"] = self.uiHeadlessModeCheckBox.isChecked()
+        settings["acpi_shutdown"] = self.uiACPIShutdownCheckBox.isChecked()
 
         adapters = self.uiAdaptersSpinBox.value()
         if node:

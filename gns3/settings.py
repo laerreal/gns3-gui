@@ -29,6 +29,9 @@ DEFAULT_PROJECTS_PATH = os.path.normpath(os.path.expanduser("~/GNS3/projects"))
 # Default images directory location
 DEFAULT_IMAGES_PATH = os.path.normpath(os.path.expanduser("~/GNS3/images"))
 
+# Default configs directory location
+DEFAULT_CONFIGS_PATH = os.path.normpath(os.path.expanduser("~/GNS3/configs"))
+
 DEFAULT_LOCAL_SERVER_HOST = "127.0.0.1"
 DEFAULT_LOCAL_SERVER_PORT = 8000
 
@@ -157,6 +160,31 @@ else:
         if distro == "Debian" or distro == "Ubuntu" or distro == "LinuxMint":
             DEFAULT_SERIAL_CONSOLE_COMMAND = PRECONFIGURED_SERIAL_CONSOLE_COMMANDS["Gnome Terminal + socat"]
 
+# Pre-configured VNC console commands on various OSes
+if sys.platform.startswith("win"):
+    # Windows
+    PRECONFIGURED_VNC_CONSOLE_COMMANDS = {'TightVNC (included with GNS3)': 'tvnviewer.exe %h:%p'}
+
+    # default Windows VNC console command
+    DEFAULT_VNC_CONSOLE_COMMAND = PRECONFIGURED_VNC_CONSOLE_COMMANDS['TightVNC (included with GNS3)']
+
+elif sys.platform.startswith("darwin"):
+    # Mac OS X
+    PRECONFIGURED_VNC_CONSOLE_COMMANDS = {
+        'Screen sharing': "osascript -e 'tell application \"Screen Sharing\"'"
+                          " -e 'open location \"vnc://%h:%p\"'"
+                          " -e 'end tell'",
+        }
+
+    # default Mac OS X VNC console command
+    DEFAULT_VNC_CONSOLE_COMMAND = PRECONFIGURED_VNC_CONSOLE_COMMANDS['Screen sharing']
+
+else:
+    PRECONFIGURED_VNC_CONSOLE_COMMANDS = {'TightVNC': 'vncviewer %h:%p'}
+
+    # default VNC console command on other systems
+    DEFAULT_VNC_CONSOLE_COMMAND = PRECONFIGURED_VNC_CONSOLE_COMMANDS['TightVNC']
+
 # Pre-configured packet capture reader commands on various OSes
 WIRESHARK_NORMAL_CAPTURE = "Wireshark Traditional Capture"
 WIRESHARK_LIVE_TRAFFIC_CAPTURE = "Wireshark Live Traffic Capture"
@@ -203,12 +231,16 @@ GENERAL_SETTINGS = {
     "telnet_console_command": DEFAULT_TELNET_CONSOLE_COMMAND,
     "serial_console_command": DEFAULT_SERIAL_CONSOLE_COMMAND,
     "shell_console_command": DEFAULT_SHELL_CONSOLE_COMMAND,
+    "vnc_console_command": DEFAULT_VNC_CONSOLE_COMMAND,
     "auto_close_console": True,
     "bring_console_to_front": True,
     "delay_console_all": 500,
     "default_local_news": False,
-    "hide_news_dock_widget": False,
+    "hide_getting_started_dialog": False,
     "debug_level": 0,
+    "recent_files": [],
+    "geometry": "",
+    "state": ""
 }
 
 GRAPHICS_VIEW_SETTINGS = {
@@ -220,38 +252,46 @@ GRAPHICS_VIEW_SETTINGS = {
     "default_label_color": "#000000",
 }
 
-LOCAL_SERVER_SETTINGS = {
-    "path": "",
-    "ubridge_path": "",
-    "host": DEFAULT_LOCAL_SERVER_HOST,
-    "port": DEFAULT_LOCAL_SERVER_PORT,
-    "images_path": DEFAULT_IMAGES_PATH,
-    "projects_path": DEFAULT_PROJECTS_PATH,
-    "report_errors": True,
-    "auto_start": True,
-    "allow_console_from_anywhere": False,
-    "auth": True,
-    "console_start_port_range": 2001,
-    "console_end_port_range": 5000,
-    "udp_start_port_range": 10000,
-    "udp_end_port_range": 20000,
+SERVERS_SETTINGS = {
+    "local_server": {
+        "path": "",
+        "ubridge_path": "",
+        "host": DEFAULT_LOCAL_SERVER_HOST,
+        "port": DEFAULT_LOCAL_SERVER_PORT,
+        "images_path": DEFAULT_IMAGES_PATH,
+        "projects_path": DEFAULT_PROJECTS_PATH,
+        "configs_path": DEFAULT_CONFIGS_PATH,
+        "report_errors": True,
+        "auto_start": True,
+        "allow_console_from_anywhere": False,
+        "auth": True,
+        "user": "",
+        "password": "",
+        "console_start_port_range": 2001,
+        "console_end_port_range": 5000,
+        "udp_start_port_range": 10000,
+        "udp_end_port_range": 20000,
+    },
+    "vm": {
+        "auto_start": False,
+        "auto_stop": True,
+        "headless": True,
+        "vmname": "GNS3 VM",
+        "vmx_path": "",
+        "server_host": "",
+        "server_port": 8000,
+        "virtualization": "VMware",
+        "user": "",
+        "password": ""
+    },
+    "load_balancing_method": "ram_usage",
+    "remote_servers": [],
 }
 
 PACKET_CAPTURE_SETTINGS = {
     "packet_capture_reader_command": DEFAULT_PACKET_CAPTURE_READER_COMMAND,
     "command_auto_start": True,
     "packet_capture_analyzer_command": DEFAULT_PACKET_CAPTURE_ANALYZER_COMMAND,
-}
-
-GNS3_VM_SETTINGS = {
-    "auto_start": False,
-    "auto_stop": True,
-    "headless": True,
-    "vmname": "GNS3 VM",
-    "vmx_path": "",
-    "server_host": "",
-    "server_port": 8000,
-    "virtualization": "VMware"
 }
 
 ENABLE_CLOUD = False

@@ -21,9 +21,11 @@ QEMU VM implementation.
 
 from gns3.vm import VM
 from gns3.node import Node
+from gns3.image_manager import ImageManager
 from gns3.ports.port import Port
 from gns3.ports.ethernet_port import EthernetPort
 from .settings import QEMU_VM_SETTINGS
+
 
 import logging
 log = logging.getLogger(__name__)
@@ -43,6 +45,9 @@ class QemuVM(VM):
         super().__init__(module, server, project)
 
         log.info("QEMU VM instance is being created")
+        self._port_name_format = None
+        self._port_segment_size = 0
+        self._first_port_name = None
 
         self._settings = {"name": "",
                           "qemu_path": "",
@@ -50,20 +55,26 @@ class QemuVM(VM):
                           "hdb_disk_image": "",
                           "hdc_disk_image": "",
                           "hdd_disk_image": "",
+                          "hda_disk_image_md5sum": "",
+                          "hdb_disk_image_md5sum": "",
+                          "hdc_disk_image_md5sum": "",
+                          "hdd_disk_image_md5sum": "",
                           "options": "",
                           "ram": QEMU_VM_SETTINGS["ram"],
                           "console": None,
+                          "console_type": QEMU_VM_SETTINGS["console_type"],
                           "adapters": QEMU_VM_SETTINGS["adapters"],
                           "adapter_type": QEMU_VM_SETTINGS["adapter_type"],
                           "mac_address": QEMU_VM_SETTINGS["mac_address"],
                           "legacy_networking": QEMU_VM_SETTINGS["legacy_networking"],
                           "platform": QEMU_VM_SETTINGS["platform"],
                           "acpi_shutdown": QEMU_VM_SETTINGS["acpi_shutdown"],
-                          "kvm": QEMU_VM_SETTINGS["kvm"],
                           "cpu_throttling": QEMU_VM_SETTINGS["cpu_throttling"],
                           "process_priority": QEMU_VM_SETTINGS["process_priority"],
                           "initrd": "",
                           "kernel_image": "",
+                          "initrd_md5sum": "",
+                          "kernel_image_md5sum": "",
                           "kernel_command_line": ""}
 
     def _addAdapters(self, adapters):
@@ -73,18 +84,25 @@ class QemuVM(VM):
         :param adapters: number of adapters
         """
 
+        interface_number = segment_number = 0
         for adapter_number in range(0, adapters):
-            adapter_name = EthernetPort.longNameType() + str(adapter_number)
-            short_name = EthernetPort.shortNameType() + str(adapter_number)
-            new_port = EthernetPort(adapter_name)
-            new_port.setShortName(short_name)
+            if self._first_port_name and adapter_number == 0:
+                port_name = self._first_port_name
+            else:
+                port_name = self._port_name_format.format(interface_number, segment_number)
+                interface_number += 1
+                if self._port_segment_size and interface_number % self._port_segment_size == 0:
+                    segment_number += 1
+                    interface_number = 0
+            new_port = EthernetPort(port_name)
             new_port.setAdapterNumber(adapter_number)
             new_port.setPortNumber(0)
             new_port.setHotPluggable(False)
             self._ports.append(new_port)
-            log.debug("Adapter {} has been added".format(adapter_name))
+            log.debug("Adapter {} with port {} has been added".format(adapter_number, port_name))
 
-    def setup(self, qemu_path, name=None, vm_id=None, additional_settings={}, base_name=None):
+    def setup(self, qemu_path, name=None, vm_id=None, port_name_format="Ethernet{0}",
+              port_segment_size=0, first_port_name="", additional_settings={}, base_name=None):
         """
         Setups this QEMU VM.
 
@@ -107,6 +125,9 @@ class QemuVM(VM):
         if vm_id:
             params["vm_id"] = vm_id
 
+        self._port_name_format = port_name_format
+        self._port_segment_size = port_segment_size
+        self._first_port_name = first_port_name
         params.update(additional_settings)
         self.httpPost("/qemu/vms", self._setupCallback, body=params)
 
@@ -118,24 +139,8 @@ class QemuVM(VM):
         :param error: indicates an error (boolean)
         """
 
-        if error:
-            log.error("error while setting up {}: {}".format(self.name(), result["message"]))
-            self.server_error_signal.emit(self.id(), result["message"])
+        if not super()._setupCallback(result, error=error, **kwargs):
             return
-
-        self._vm_id = result["vm_id"]
-        if not self._vm_id:
-            self.error_signal.emit(self.id(), "returned ID from server is null")
-            return
-
-        # update the settings using the defaults sent by the server
-        for name, value in result.items():
-            if name in self._settings and self._settings[name] != value:
-                log.info("QEMU VM instance {} setting up and updating {} from '{}' to '{}'".format(self.name(),
-                                                                                                   name,
-                                                                                                   self._settings[name],
-                                                                                                   value))
-                self._settings[name] = value
 
         # create the ports on the client side
         self._addAdapters(self._settings.get("adapters", 0))
@@ -147,6 +152,13 @@ class QemuVM(VM):
             log.info("QEMU VM instance {} has been created".format(self.name()))
             self.created_signal.emit(self.id())
             self._module.addNode(self)
+
+        for image_field in ["hda_disk_image", "hdb_disk_image", "hdc_disk_image", "hdd_disk_image", "initrd", "kernel_image"]:
+            if image_field in result and result[image_field] is not None and result[image_field] != "":
+                # The image is missing on remote server
+                field = "{}_md5sum".format(image_field)
+                if field not in result or result[field] is None or len(result[field]) == 0:
+                    ImageManager.instance().addMissingImage(result[image_field], self._server, "QEMU")
 
     def delete(self):
         """
@@ -301,7 +313,13 @@ class QemuVM(VM):
                    "type": self.__class__.__name__,
                    "description": str(self),
                    "properties": {},
+                   "port_name_format": self._port_name_format,
                    "server_id": self._server.id()}
+
+        if self._port_segment_size:
+            qemu_vm["port_segment_size"] = self._port_segment_size
+        if self._first_port_name:
+            qemu_vm["first_port_name"] = self._first_port_name
 
         # add the properties
         for name, value in self._settings.items():
@@ -330,14 +348,16 @@ class QemuVM(VM):
 
         info = """QEMU VM {name} is {state}
   Node ID is {id}, server's QEMU VM ID is {vm_id}
-  QEMU VM's server runs on {host}:{port}, console is on port {console}
+  QEMU VM's server runs on {host}:{port}
+  Console is on port {console} and type is {console_type}
 """.format(name=self.name(),
            id=self.id(),
            vm_id=self._vm_id,
            state=state,
            host=self._server.host(),
            port=self._server.port(),
-           console=self._settings["console"])
+           console=self._settings["console"],
+           console_type=self._settings["console_type"])
 
         port_info = ""
         for port in self._ports:
@@ -361,6 +381,9 @@ class QemuVM(VM):
         vm_id = node_info.get("qemu_id")
         if not vm_id:
             vm_id = node_info.get("vm_id")
+        port_name_format = node_info.get("port_name_format", "Ethernet{0}")
+        port_segment_size = node_info.get("port_segment_size", 0)
+        first_port_name = node_info.get("first_port_name", "")
 
         # prepare the VM settings
         vm_settings = {}
@@ -369,13 +392,12 @@ class QemuVM(VM):
                 vm_settings[name] = value
         name = vm_settings.pop("name")
         qemu_path = vm_settings.pop("qemu_path")
-
         log.info("QEMU VM {} is loading".format(name))
         self.setName(name)
         self._loading = True
         self._node_info = node_info
         self.loaded_signal.connect(self._updatePortSettings)
-        self.setup(qemu_path, name, vm_id, vm_settings)
+        self.setup(qemu_path, name, vm_id, port_name_format, port_segment_size, first_port_name, vm_settings)
 
     def _updatePortSettings(self):
         """
@@ -456,17 +478,7 @@ class QemuVM(VM):
         :returns: symbol path (or resource).
         """
 
-        return ":/symbols/qemu_guest.normal.svg"
-
-    @staticmethod
-    def hoverSymbol():
-        """
-        Returns the symbol to use when this node is hovered.
-
-        :returns: symbol path (or resource).
-        """
-
-        return ":/symbols/qemu_guest.selected.svg"
+        return ":/symbols/qemu_guest.svg"
 
     @staticmethod
     def symbolName():

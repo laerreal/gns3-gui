@@ -65,6 +65,7 @@ from .project import Project
 from .http_client import HTTPClient
 from .progress import Progress
 from .licence import checkLicence
+from .image_manager import ImageManager
 
 log = logging.getLogger(__name__)
 
@@ -89,13 +90,11 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.setupUi(self)
 
         MainWindow._instance = self
-
         self._settings = {}
-        HTTPClient.setProgressCallback(Progress(self))
+        HTTPClient.setProgressCallback(Progress().instance())
 
         self._project = None
         self._createTemporaryProject()
-
         self._project_from_cmdline = project
         self._cloud_settings = {}
         self._loadSettings()
@@ -105,6 +104,8 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self._recent_file_actions = []
         self._start_time = time.time()
         self.loading_cloud_project = False
+        local_config = LocalConfig.instance()
+        local_config.config_changed_signal.connect(self._localConfigChangedSlot)
 
         self._uiNewsDockWidget = None
         if not checkLicence():
@@ -116,12 +117,8 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 pass
 
         # restore the geometry and state of the main window.
-        local_config = LocalConfig.instance()
-        local_config.config_changed_signal.connect(self._localConfigChangedSlot)
-        gui_settings = local_config.loadSectionSettings("GUI", {"geometry": "",
-                                                                "state": ""})
-        self.restoreGeometry(QtCore.QByteArray().fromBase64(gui_settings["geometry"]))
-        self.restoreState(QtCore.QByteArray().fromBase64(gui_settings["state"]))
+        self.restoreGeometry(QtCore.QByteArray().fromBase64(self._settings["geometry"]))
+        self.restoreState(QtCore.QByteArray().fromBase64(self._settings["state"]))
 
         # populate the view -> docks menu
         self.uiDocksMenu.addAction(self.uiTopologySummaryDockWidget.toggleViewAction())
@@ -342,6 +339,15 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         :returns: command (string)
         """
         return self._settings["shell_console_command"]
+
+    def vncConsoleCommand(self):
+        """
+        Returns the VNC command line.
+
+        :returns: command (string)
+        """
+
+        return self._settings["vnc_console_command"]
 
     def setUnsavedState(self):
         """
@@ -633,7 +639,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         Slot called to reset the zoom.
         """
 
-        self.uiGraphicsView.resetMatrix()
+        self.uiGraphicsView.resetTransform()
 
     def _fitInViewActionSlot(self):
         """
@@ -796,10 +802,9 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         # supported image file formats
         file_formats = "PNG File (*.png);;JPG File (*.jpeg *.jpg);;BMP File (*.bmp);;XPM File (*.xpm *.xbm);;PPM File (*.ppm);;TIFF File (*.tiff);;All files (*.*)"
 
-        path = QtWidgets.QFileDialog.getOpenFileName(self, "Image", self._pictures_dir, file_formats)
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Image", self._pictures_dir, file_formats)
         if not path:
             return
-        path = path[0]
         self._pictures_dir = os.path.dirname(path)
 
         pixmap = QtGui.QPixmap(path)
@@ -900,7 +905,8 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             # QtWebKit which is used by GettingStartedDialog is not installed
             # by default on FreeBSD, Solaris and possibly other systems.
             from .dialogs.getting_started_dialog import GettingStartedDialog
-        except ImportError:
+        except ImportError as e:
+            print(e)
             return
 
         dialog = GettingStartedDialog(self)
@@ -967,6 +973,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         """
         Called when the local config change
         """
+
         self.uiNodesView.refresh()
 
     def _browseRoutersActionSlot(self):
@@ -1021,9 +1028,10 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         Slot to show the preferences dialog.
         """
 
-        dialog = PreferencesDialog(self)
-        dialog.show()
-        dialog.exec_()
+        with Progress.instance().context(min_duration=0):
+            dialog = PreferencesDialog(self)
+            dialog.show()
+            dialog.exec_()
 
     def keyPressEvent(self, event):
         """
@@ -1046,6 +1054,10 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
 
         :param event: QCloseEvent
         """
+
+        progress = Progress.instance()
+        progress.setAllowCancelQuery(True)
+        progress.setCancelButtonText("Force quit")
 
         log.debug("Close the main Windows")
         servers = Servers.instance()
@@ -1078,9 +1090,9 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
 
         GNS3VM.instance().shutdown()
 
-        local_config = LocalConfig.instance()
-        local_config.saveSectionSettings("GUI", {"geometry": bytes(self.saveGeometry().toBase64()).decode(),
-                                                 "state": bytes(self.saveState().toBase64()).decode()})
+        self._settings["geometry"] = bytes(self.saveGeometry().toBase64()).decode()
+        self._settings["state"] = bytes(self.saveState().toBase64()).decode()
+        self.setSettings(self._settings)
 
         servers = Servers.instance()
         servers.stopLocalServer(wait=True)
@@ -1139,16 +1151,13 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
 
         servers = Servers.instance()
         if GNS3VM.instance().autoStart():
+            servers.initVMServer()
+
             # automatically start the GNS3 VM
             worker = WaitForVMWorker()
             progress_dialog = ProgressDialog(worker, "GNS3 VM", "Starting the GNS3 VM...", "Cancel", busy=True, parent=self)
             progress_dialog.show()
-            if progress_dialog.exec_():
-                servers.initVMServer()
-
-        if self._settings["debug_level"]:
-            root = logging.getLogger()
-            root.addHandler(logging.StreamHandler(sys.stdout))
+            progress_dialog.exec_()
 
         if self._uiNewsDockWidget and not self._uiNewsDockWidget.isVisible():
             self.addDockWidget(QtCore.Qt.DockWidgetArea(QtCore.Qt.BottomDockWidgetArea), self._uiNewsDockWidget)
@@ -1461,15 +1470,11 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         """
 
         recent_files = []
-        # read the recent file list
-        local_config = LocalConfig.instance()
-        settings = local_config.settings()
-        if "RecentFiles" in settings:
-            for file_path in settings["RecentFiles"]:
-                if file_path:
-                    file_path = os.path.normpath(file_path)
-                    if file_path not in recent_files and os.path.exists(file_path):
-                        recent_files.append(file_path)
+        for file_path in self._settings["recent_files"]:
+            if file_path:
+                file_path = os.path.normpath(file_path)
+                if file_path not in recent_files and os.path.exists(file_path):
+                    recent_files.append(file_path)
 
         # update the recent file list
         if path in recent_files:
@@ -1479,27 +1484,23 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             recent_files.pop()
 
         # write the recent file list
-        settings["RecentFiles"] = recent_files
-        local_config.setSettings(settings)
+        self._settings["recent_files"] = recent_files
+        self.setSettings(self._settings)
 
     def _updateRecentFileActions(self):
         """
         Updates recent file actions.
         """
 
-        local_config = LocalConfig.instance()
-        settings = local_config.settings()
-        size = 0
-        if "RecentFiles" in settings:
-            index = 0
-            size = len(settings["RecentFiles"])
-            for file_path in settings["RecentFiles"]:
-                if file_path and os.path.exists(file_path):
-                    action = self._recent_file_actions[index]
-                    action.setText(" {}. {}".format(index + 1, os.path.basename(file_path)))
-                    action.setData(file_path)
-                    action.setVisible(True)
-                    index += 1
+        index = 0
+        size = len(self._settings["recent_files"])
+        for file_path in self._settings["recent_files"]:
+            if file_path and os.path.exists(file_path):
+                action = self._recent_file_actions[index]
+                action.setText(" {}. {}".format(index + 1, os.path.basename(file_path)))
+                action.setData(file_path)
+                action.setVisible(True)
+                index += 1
 
         for index in range(size + 1, self._max_recent_files):
             self._recent_file_actions[index].setVisible(False)
@@ -1507,7 +1508,8 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         if size:
             self._recent_file_actions_separator.setVisible(True)
 
-    def projectsDirPath(self):
+    @staticmethod
+    def projectsDirPath():
         """
         Returns the projects directory path.
 
@@ -1515,15 +1517,6 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         """
 
         return Servers.instance().localServerSettings()["projects_path"]
-
-    def imagesDirPath(self):
-        """
-        Returns the images directory path.
-
-        :returns: path to the default images directory
-        """
-
-        return Servers.instance().localServerSettings()["images_path"]
 
     @staticmethod
     def instance():
@@ -1663,7 +1656,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             self,
             self._cloud_settings,
             self._project.topologyFile(),
-            self.imagesDirPath()
+            ImageManager.instance().getDirectory()
         )
         progress_dialog = ProgressDialog(upload_thread, "Backing Up Project", "Uploading project files...", "Cancel",
                                          parent=self)
@@ -1672,7 +1665,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
 
     def _downloadRemoteProjectActionSlot(self):
         if self._project.temporary():
-            QtWidgets.QMessageBox.warning(self, "You can not download a temporary project")
+            QtWidgets.QMessageBox.warning(self, "Download project", "You can not download a temporary project")
 
         running_nodes = self._running_nodes()
 
@@ -1690,7 +1683,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         dialog = ImportCloudProjectDialog(
             self,
             self.projectsDirPath(),
-            self.imagesDirPath(),
+            ImageManager.instance().getDirectory(),
             self._cloud_settings
         )
 

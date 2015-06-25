@@ -9,6 +9,11 @@
             "pattern": "^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$"
         },
 
+        "md5" : {
+            "type": "string",
+            "pattern": "^[a-f0-9]{32}$"
+        },
+
         "optional_uuid" : {
             "oneOf": [
                 { "$ref": "#/definitions/uuid" },
@@ -185,9 +190,14 @@
             "properties": {
                 "protocol": { "enum": ["http", "https"] },
                 "cloud": { "type": "boolean" },
+                "vm": { "type": "boolean" },
                 "host": { "$ref": "#/definitions/mandatory_string" },
                 "id": { "$ref": "#/definitions/numeric_id" },
                 "local": { "type": "boolean" },
+                "ram_limit": {
+                    "type": "integer",
+                    "minimum": 0
+                },
                 "port": { "$ref": "#/definitions/network_port" },
                 "user": {
                     "type": ["string", "null"]
@@ -207,9 +217,14 @@
             "properties": {
                 "protocol": { "enum": ["ssh"] },
                 "cloud": { "type": "boolean" },
+                "vm": { "type": "boolean" },                
                 "host": { "$ref": "#/definitions/mandatory_string" },
                 "id": { "$ref": "#/definitions/numeric_id" },
                 "local": { "type": "boolean" },
+                "ram_limit": {
+                    "type": "integer",
+                    "minimum": 0
+                },
                 "port": { "$ref": "#/definitions/network_port" },
                 "ssh_key": { "$ref": "#/definitions/mandatory_string" },
                 "ssh_port": { "$ref": "#/definitions/network_port" },
@@ -217,7 +232,6 @@
             },
             "required": [
                 "protocol",
-                "cloud",
                 "host",
                 "id",
                 "local",
@@ -238,6 +252,7 @@
                         "Cloud",
                         "IOUDevice",
                         "VirtualBoxVM",
+                        "VMwareVM",
                         "QemuVM",
                         "VPCSDevice",
                         "EthernetHub",
@@ -257,8 +272,18 @@
                 "id": { "$ref": "#/definitions/numeric_id" },
                 "device_id": { "$ref": "#/definitions/optional_uuid" },
                 "label": { "$ref": "#/definitions/label" },
-                "hover_symbol": { "$ref": "#/definitions/mandatory_string" },
-                "default_symbol": { "$ref": "#/definitions/mandatory_string" },
+                "symbol": { "$ref": "#/definitions/mandatory_string" },
+                "default_symbol": {
+                    "description": "The node symbol. Deprecated in 1.4",
+                    "$ref": "#/definitions/mandatory_string"
+                },
+                "hover_symbol": {
+                    "description": "The node symbol when hover. Deprecated in 1.4",
+                    "$ref": "#/definitions/mandatory_string"
+                },
+                "port_name_format": { "$ref": "#/definitions/mandatory_string" },
+                "port_segment_size": { "type": "number" },
+                "first_port_name": { "$ref": "#/definitions/mandatory_string" },
                 "ports": {
                     "type": "array",
                     "items": { "$ref": "#/definitions/port" }
@@ -288,6 +313,7 @@
                         { "$ref": "#/definitions/properties_dynamips_frame_relay" },
                         { "$ref": "#/definitions/properties_qemu" },
                         { "$ref": "#/definitions/properties_virtualbox" },
+                        { "$ref": "#/definitions/properties_vmware" },
                         { "$ref": "#/definitions/properties_iou" },
                         { "$ref": "#/definitions/properties_cloud_host" }
                     ]
@@ -314,10 +340,12 @@
                 "console": { "$ref": "#/definitions/network_port" },
                 "ethernet_adapters": { "type": "integer", "minimum": 0 },
                 "initial_config": { "$ref": "#/definitions/mandatory_string" },
+                "startup_config": { "$ref": "#/definitions/mandatory_string" },
                 "l1_keepalives": { "type": "boolean" },
                 "name": { "$ref": "#/definitions/mandatory_string" },
                 "nvram": { "type": "integer", "minimum": 1 },
                 "path": { "$ref": "#/definitions/mandatory_string" },
+                "md5sum":  { "$ref": "#/definitions/md5" },
                 "ram": { "type": "integer", "minimum": 1 },
                 "serial_adapters": { "type": "integer", "minimum": 0 },
                 "use_default_iou_values": { "type": "boolean" }
@@ -350,6 +378,7 @@
             "type": "object",
             "properties": {
                 "console": { "$ref": "#/definitions/network_port" },
+                "console_type": { "$ref": "#/definitions/mandatory_string" },
                 "monitor": { "$ref": "#/definitions/network_port" },
                 "name": { "$ref": "#/definitions/mandatory_string" },
                 "acpi_shutdown": { "type": "boolean" },
@@ -362,8 +391,14 @@
                 "hdb_disk_image": { "type": "string" },
                 "hdc_disk_image": { "type": "string" },
                 "hdd_disk_image": { "type": "string" },
+                "hda_disk_image_md5sum": { "$ref": "#/definitions/md5" },
+                "hdb_disk_image_md5sum": { "$ref": "#/definitions/md5" },
+                "hdc_disk_image_md5sum": { "$ref": "#/definitions/md5" },
+                "hdd_disk_image_md5sum": { "$ref": "#/definitions/md5" },
                 "initrd": { "type": "string" },
+                "initrd_md5sum": { "$ref": "#/definitions/md5" },
                 "kernel_image": { "type": "string"},
+                "kernel_image_md5sum": { "$ref": "#/definitions/md5" },
                 "kernel_command_line": { "type": "string" },
                 "legacy_networking": { "type": "boolean" },
                 "mac_address": { "$ref": "#/definitions/mandatory_string" },
@@ -373,7 +408,6 @@
                 },
                 "qemu_path": { "type": "string" },
                 "platform": { "type": "string" },
-                "kvm": { "type": "boolean" },
                 "ram": {"type": "integer", "minimum": 1}
             },
             "required": [
@@ -420,6 +454,43 @@
                 "ram",
                 "use_any_adapter",
                 "vmname"
+            ],
+            "additionalProperties": false
+        },
+
+        "properties_vmware": {
+            "type": "object",
+            "properties": {
+                "acpi_shutdown": { "type": "boolean" },
+                "adapters": { "type": "integer", "minimum": 0 },
+                "console": { "$ref": "#/definitions/network_port" },
+                "enable_remote_console": { "type": "boolean" },
+                "headless": { "type": "boolean" },
+                "name": { "$ref": "#/definitions/mandatory_string" },
+                "vmx_path": { "$ref": "#/definitions/mandatory_string" },
+                "use_any_adapter": { "type": "boolean" },
+                "adapter_type": {
+                    "enum": [
+                        "default",
+                        "e1000",
+                        "e1000e",
+                        "flexible",
+                        "vlance",
+                        "vmxnet",
+                        "vmxnet2",
+                        "vmxnet3"
+                    ]
+                }
+            },
+            "required": [
+                "adapter_type",
+                "adapters",
+                "console",
+                "enable_remote_console",
+                "headless",
+                "name",
+                "use_any_adapter",
+                "vmx_path"
             ],
             "additionalProperties": false
         },
@@ -475,6 +546,7 @@
                 "idlepc": {"type": "string", "pattern": "^0x[0-9a-f]{8}"},
                 "idlesleep": {"type": "integer", "minimum": 1},
                 "image": { "$ref": "#/definitions/mandatory_string" },
+                "image_md5sum": { "$ref": "#/definitions/md5" }, 
                 "mac_addr": { "$ref": "#/definitions/mandatory_string" },
                 "midplane": { "enum": ["std", "vxr"] },
                 "chassis": {

@@ -393,6 +393,21 @@ class Node(QtCore.QObject):
 
         assert("Not supposed to get here!")
 
+    @staticmethod
+    def defaultCategories():
+        """
+        Returns the default categories.
+
+        :returns: dict
+        """
+
+        categories = {"Routers": Node.routers,
+                      "Switches": Node.switches,
+                      "End devices": Node.end_devices,
+                      "Security devices": Node.security_devices}
+
+        return categories
+
     def configPage(self):
         """
         Returns the configuration page widget to be used by the node properties dialog.
@@ -417,17 +432,6 @@ class Node(QtCore.QObject):
     def defaultSymbol():
         """
         Returns the default symbol path for this node.
-        Must be overloaded.
-
-        :returns: symbol path (or resource).
-        """
-
-        raise NotImplementedError()
-
-    @staticmethod
-    def hoverSymbol():
-        """
-        Returns the symbol to use when the node is hovered.
         Must be overloaded.
 
         :returns: symbol path (or resource).

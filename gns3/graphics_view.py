@@ -24,9 +24,11 @@ import os
 import pickle
 import functools
 
-from .qt import QtCore, QtGui, QtNetwork, QtWidgets
+from .qt import QtCore, QtGui, QtSvg, QtNetwork, QtWidgets
 from .servers import Servers
 from .items.node_item import NodeItem
+from .items.svg_node_item import SvgNodeItem
+from .items.pixmap_node_item import PixmapNodeItem
 from .dialogs.node_properties_dialog import NodePropertiesDialog
 from .link import Link
 from .node import Node
@@ -41,6 +43,7 @@ from .dialogs.text_editor_dialog import TextEditorDialog
 from .dialogs.symbol_selection_dialog import SymbolSelectionDialog
 from .dialogs.idlepc_dialog import IdlePCDialog
 from .local_config import LocalConfig
+from .progress import Progress
 
 # link items
 from .items.link_item import LinkItem
@@ -67,8 +70,7 @@ class GraphicsView(QtWidgets.QGraphicsView):
 
     def __init__(self, parent):
 
-        # Our parent is the central widget which parent
-        # is the main window.
+        # Our parent is the central widget which parent is the main window.
         self._main_window = parent.parent()
 
         super().__init__(parent)
@@ -588,6 +590,11 @@ class GraphicsView(QtWidgets.QGraphicsView):
                 # show item coords in the status bar
                 coords = "X: {} Y: {} Z: {}".format(item.x(), item.y(), item.zValue())
                 self._main_window.uiStatusBar.showMessage(coords, 2000)
+
+            # force the children to redraw because of a problem with QGraphicsEffect
+            for item in self.scene().selectedItems():
+                for child in item.childItems():
+                    child.update()
             super().mouseMoveEvent(event)
 
     def mouseDoubleClickEvent(self, event):
@@ -623,10 +630,11 @@ class GraphicsView(QtWidgets.QGraphicsView):
 
         if not items:
             items = self.scene().selectedItems()
-        node_properties = NodePropertiesDialog(items, self._main_window)
-        node_properties.setModal(True)
-        node_properties.show()
-        node_properties.exec_()
+        with Progress.instance().context(min_duration=0):
+            node_properties = NodePropertiesDialog(items, self._main_window)
+            node_properties.setModal(True)
+            node_properties.show()
+            node_properties.exec_()
         for item in items:
             item.setSelected(False)
 
@@ -947,14 +955,19 @@ class GraphicsView(QtWidgets.QGraphicsView):
         for item in self.scene().selectedItems():
             if isinstance(item, NodeItem) and item.node().initialized():
                 node = item.node()
-                vm_dir = node.project().filesDir()  # FIXME: get the VM directory instead
+                vm_dir = node.vmDir()
+                if vm_dir is None:
+                    QtWidgets.QMessageBox.critical(self, "Show in file manager", "This VM has no working directory")
+                    break
+
                 if os.path.exists(vm_dir):
+                    log.debug("Open %s in file manage" )
                     if QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(vm_dir)) is False:
                         QtWidgets.QMessageBox.critical(self, "Show in file manager", "Failed to open {}".format(vm_dir))
                         break
                 else:
-                    # TODO: this is a remote server, show an info box
-                    pass
+                    QtWidgets.QMessageBox.information(self, "Show in file manager", "The device directory is located in {} on {}".format(vm_dir, node.server().url()))
+                    break
 
     def consoleToNode(self, node, aux=False):
         """
@@ -999,11 +1012,19 @@ class GraphicsView(QtWidgets.QGraphicsView):
                     return False
             else:
                 console_port = node.console()
-            console_host = node.server().host()
+
+            console_type = "telnet"
+            if "console_type" in node.settings():
+                console_type = node.settings()["console_type"]
+
             try:
                 from .telnet_console import nodeTelnetConsole
+                from .vnc_console import vncConsole
 
-                nodeTelnetConsole(name, node.server(), console_port)
+                if console_type == "telnet":
+                    nodeTelnetConsole(name, node.server(), console_port)
+                elif console_type == "vnc":
+                    vncConsole(node.server().host(), console_port)
             except (OSError, ValueError) as e:
                 QtWidgets.QMessageBox.critical(self, "Console", "Cannot start console application: {}".format(e))
                 return False
@@ -1414,8 +1435,12 @@ class GraphicsView(QtWidgets.QGraphicsView):
                 if server is None:
                     QtWidgets.QMessageBox.critical(self, "GNS3 VM", "The GNS3 VM is not running")
                     return
-            elif node_data["server"] == "cloud":
-                server = Servers.instance().anyCloudServer()
+            elif node_data["server"] == "load-balance":
+                ram = node_data.get("ram", 0)
+                server = Servers.instance().anyRemoteServer(ram)
+                if server is None:
+                    QtWidgets.QMessageBox.critical(self, "Remote server", "Cannot load balance: no remote server configured")
+                    return
             else:
                 server = Servers.instance().getServerFromString(node_data["server"])
 
@@ -1426,7 +1451,10 @@ class GraphicsView(QtWidgets.QGraphicsView):
             node.error_signal.connect(self._main_window.uiConsoleTextEdit.writeError)
             node.warning_signal.connect(self._main_window.uiConsoleTextEdit.writeWarning)
             node.server_error_signal.connect(self._main_window.uiConsoleTextEdit.writeServerError)
-            node_item = NodeItem(node, node_data["default_symbol"], node_data["hover_symbol"])
+            if QtSvg.QSvgRenderer(node_data["symbol"]).isValid():
+                node_item = SvgNodeItem(node, node_data["symbol"])
+            else:
+                node_item = PixmapNodeItem(node, node_data["symbol"])
             node_module.setupNode(node, node_data["name"])
         except ModuleError as e:
             QtWidgets.QMessageBox.critical(self, "Node creation", "{}".format(e))

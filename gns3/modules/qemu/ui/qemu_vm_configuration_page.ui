@@ -24,17 +24,31 @@
        <string>General settings</string>
       </attribute>
       <layout class="QGridLayout" name="gridLayout_4">
-       <item row="2" column="0" colspan="2">
-        <widget class="QLabel" name="uiQemuListLabel">
+       <item row="2" column="0">
+        <widget class="QLabel" name="uiSymbolLabel">
          <property name="text">
-          <string>Qemu binary:</string>
+          <string>Symbol:</string>
          </property>
         </widget>
        </item>
-       <item row="0" column="2">
-        <widget class="QLineEdit" name="uiNameLineEdit"/>
+       <item row="5" column="2">
+        <widget class="QComboBox" name="uiQemuListComboBox">
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+           <horstretch>0</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
+         </property>
+        </widget>
        </item>
-       <item row="4" column="1" colspan="2">
+       <item row="7" column="2">
+        <widget class="QSpinBox" name="uiConsolePortSpinBox">
+         <property name="maximum">
+          <number>65535</number>
+         </property>
+        </widget>
+       </item>
+       <item row="9" column="2">
         <spacer name="spacer">
          <property name="orientation">
           <enum>Qt::Vertical</enum>
@@ -47,45 +61,28 @@
          </property>
         </spacer>
        </item>
-       <item row="2" column="2">
-        <widget class="QComboBox" name="uiQemuListComboBox">
-         <property name="sizePolicy">
-          <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
-           <horstretch>0</horstretch>
-           <verstretch>0</verstretch>
-          </sizepolicy>
+       <item row="5" column="0" colspan="2">
+        <widget class="QLabel" name="uiQemuListLabel">
+         <property name="text">
+          <string>Qemu binary:</string>
          </property>
         </widget>
        </item>
-       <item row="3" column="2">
-        <widget class="QSpinBox" name="uiConsolePortSpinBox">
-         <property name="maximum">
-          <number>65535</number>
-         </property>
-        </widget>
-       </item>
-       <item row="3" column="0" colspan="2">
+       <item row="7" column="0" colspan="2">
         <widget class="QLabel" name="uiConsolePortLabel">
          <property name="text">
           <string>Console port:</string>
          </property>
         </widget>
        </item>
-       <item row="0" column="0">
-        <widget class="QLabel" name="uiNameLabel">
-         <property name="text">
-          <string>VM name:</string>
-         </property>
-        </widget>
-       </item>
-       <item row="1" column="0">
+       <item row="4" column="0">
         <widget class="QLabel" name="uiRamLabel">
          <property name="text">
           <string>RAM:</string>
          </property>
         </widget>
        </item>
-       <item row="1" column="2">
+       <item row="4" column="2">
         <widget class="QSpinBox" name="uiRamSpinBox">
          <property name="suffix">
           <string> MB</string>
@@ -99,6 +96,64 @@
          <property name="value">
           <number>256</number>
          </property>
+        </widget>
+       </item>
+       <item row="2" column="2">
+        <layout class="QHBoxLayout" name="horizontalLayout_7">
+         <item>
+          <widget class="QLineEdit" name="uiSymbolLineEdit"/>
+         </item>
+         <item>
+          <widget class="QToolButton" name="uiSymbolToolButton">
+           <property name="text">
+            <string>&amp;Browse...</string>
+           </property>
+           <property name="toolButtonStyle">
+            <enum>Qt::ToolButtonTextOnly</enum>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item row="0" column="0">
+        <widget class="QLabel" name="uiNameLabel">
+         <property name="text">
+          <string>VM name:</string>
+         </property>
+        </widget>
+       </item>
+       <item row="0" column="2">
+        <widget class="QLineEdit" name="uiNameLineEdit"/>
+       </item>
+       <item row="3" column="0">
+        <widget class="QLabel" name="uiCategoryLabel">
+         <property name="text">
+          <string>Category:</string>
+         </property>
+        </widget>
+       </item>
+       <item row="3" column="2">
+        <widget class="QComboBox" name="uiCategoryComboBox"/>
+       </item>
+       <item row="6" column="0">
+        <widget class="QLabel" name="uiConsoleTypeLabel">
+         <property name="text">
+          <string>Console type:</string>
+         </property>
+        </widget>
+       </item>
+       <item row="6" column="2">
+        <widget class="QComboBox" name="uiConsoleTypeComboBox">
+         <item>
+          <property name="text">
+           <string>telnet</string>
+          </property>
+         </item>
+         <item>
+          <property name="text">
+           <string>vnc</string>
+          </property>
+         </item>
         </widget>
        </item>
       </layout>
@@ -252,10 +307,68 @@
        <string>Network</string>
       </attribute>
       <layout class="QGridLayout" name="gridLayout_5">
+       <item row="6" column="1">
+        <widget class="QComboBox" name="uiAdapterTypesComboBox">
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+           <horstretch>0</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
+         </property>
+        </widget>
+       </item>
+       <item row="7" column="0" colspan="2">
+        <widget class="QCheckBox" name="uiLegacyNetworkingCheckBox">
+         <property name="text">
+          <string>Use the legacy networking mode</string>
+         </property>
+        </widget>
+       </item>
+       <item row="5" column="1">
+        <widget class="QLineEdit" name="uiMacAddrLineEdit"/>
+       </item>
+       <item row="3" column="0">
+        <widget class="QLabel" name="uiPortSegmentSizeLabel">
+         <property name="text">
+          <string>Segment size:</string>
+         </property>
+        </widget>
+       </item>
+       <item row="6" column="0">
+        <widget class="QLabel" name="uiAdapterTypesLabel">
+         <property name="text">
+          <string>Type:</string>
+         </property>
+        </widget>
+       </item>
+       <item row="3" column="1">
+        <widget class="QSpinBox" name="uiPortSegmentSizeSpinBox">
+         <property name="maximum">
+          <number>128</number>
+         </property>
+         <property name="singleStep">
+          <number>4</number>
+         </property>
+        </widget>
+       </item>
        <item row="0" column="0">
         <widget class="QLabel" name="uiAdaptersLabel">
          <property name="text">
           <string>Adapters:</string>
+         </property>
+        </widget>
+       </item>
+       <item row="5" column="0">
+        <widget class="QLabel" name="uiMacAddrLabel">
+         <property name="text">
+          <string>Base MAC:</string>
+         </property>
+        </widget>
+       </item>
+       <item row="2" column="0">
+        <widget class="QLabel" name="uiPortNameFormatLabel">
+         <property name="text">
+          <string>Name format:</string>
          </property>
         </widget>
        </item>
@@ -275,41 +388,14 @@
          </property>
         </widget>
        </item>
-       <item row="1" column="0">
-        <widget class="QLabel" name="uiMacAddrLabel">
-         <property name="text">
-          <string>Base MAC:</string>
-         </property>
-        </widget>
-       </item>
-       <item row="1" column="1">
-        <widget class="QLineEdit" name="uiMacAddrLineEdit"/>
-       </item>
-       <item row="2" column="0">
-        <widget class="QLabel" name="uiAdapterTypesLabel">
-         <property name="text">
-          <string>Type:</string>
-         </property>
-        </widget>
-       </item>
        <item row="2" column="1">
-        <widget class="QComboBox" name="uiAdapterTypesComboBox">
-         <property name="sizePolicy">
-          <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
-           <horstretch>0</horstretch>
-           <verstretch>0</verstretch>
-          </sizepolicy>
-         </property>
-        </widget>
-       </item>
-       <item row="3" column="0" colspan="2">
-        <widget class="QCheckBox" name="uiLegacyNetworkingCheckBox">
+        <widget class="QLineEdit" name="uiPortNameFormatLineEdit">
          <property name="text">
-          <string>Use the legacy networking mode</string>
+          <string/>
          </property>
         </widget>
        </item>
-       <item row="4" column="1">
+       <item row="8" column="1">
         <spacer name="verticalSpacer_3">
          <property name="orientation">
           <enum>Qt::Vertical</enum>
@@ -321,6 +407,16 @@
           </size>
          </property>
         </spacer>
+       </item>
+       <item row="1" column="0">
+        <widget class="QLabel" name="uiFirstPortNameLabel">
+         <property name="text">
+          <string>First port name:</string>
+         </property>
+        </widget>
+       </item>
+       <item row="1" column="1">
+        <widget class="QLineEdit" name="uiFirstPortNameLineEdit"/>
        </item>
       </layout>
      </widget>
@@ -394,7 +490,7 @@
           <string>Optimizations</string>
          </property>
          <layout class="QGridLayout" name="gridLayout">
-          <item row="1" column="0" colspan="2">
+          <item row="0" column="0" colspan="2">
            <widget class="QCheckBox" name="uiActivateCPUThrottlingCheckBox">
             <property name="text">
              <string>Activate CPU throttling</string>
@@ -404,14 +500,14 @@
             </property>
            </widget>
           </item>
-          <item row="2" column="0">
+          <item row="1" column="0">
            <widget class="QLabel" name="uiCPUThrottlingLabel">
             <property name="text">
              <string>Percentage of CPU allowed:</string>
             </property>
            </widget>
           </item>
-          <item row="2" column="1">
+          <item row="1" column="1">
            <widget class="QSpinBox" name="uiCPUThrottlingSpinBox">
             <property name="suffix">
              <string> %</string>
@@ -427,14 +523,14 @@
             </property>
            </widget>
           </item>
-          <item row="3" column="0">
+          <item row="2" column="0">
            <widget class="QLabel" name="uiProcessPriorityLabel">
             <property name="text">
              <string>Process priority:</string>
             </property>
            </widget>
           </item>
-          <item row="3" column="1">
+          <item row="2" column="1">
            <widget class="QComboBox" name="uiProcessPriorityComboBox">
             <property name="sizePolicy">
              <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
@@ -475,13 +571,6 @@
               <string>Very low</string>
              </property>
             </item>
-           </widget>
-          </item>
-          <item row="0" column="0" colspan="2">
-           <widget class="QCheckBox" name="uiKVMAccelerationCheckBox">
-            <property name="text">
-             <string>Enable KVM acceleration</string>
-            </property>
            </widget>
           </item>
          </layout>

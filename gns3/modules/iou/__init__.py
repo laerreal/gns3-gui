@@ -56,7 +56,6 @@ class IOU(Module):
     def configChangedSlot(self):
         # load the settings
         self._loadSettings()
-        self._loadIOUDevices()
 
     def _loadSettings(self):
         """
@@ -70,8 +69,7 @@ class IOU(Module):
             if iouyap_path:
                 self._settings["iouyap_path"] = iouyap_path
 
-        # keep the config file sync
-        self._saveSettings()
+        self._loadIOUDevices()
 
     def _saveSettings(self):
         """
@@ -105,13 +103,11 @@ class IOU(Module):
                     continue
                 device_settings = IOU_DEVICE_SETTINGS.copy()
                 device_settings.update(device)
-                if "initial_config" in device_settings:
-                    # transfer initial-config (post version 1.4) to startup-config
-                    device_settings["startup_config"] = device_settings["initial_config"]
+                # for backward compatibility before version 1.4
+                device_settings["symbol"] = device_settings.get("default_symbol", device_settings["symbol"])
+                device_settings["symbol"] = device_settings["symbol"][:-11] + ".svg" if device_settings["symbol"].endswith("normal.svg") else device_settings["symbol"]
+                device_settings["startup_config"] = device_settings.get("initial_config", device_settings["startup_config"])
                 self._iou_devices[key] = device_settings
-
-        # keep things sync
-        self._saveIOUDevices()
 
     def _saveIOUDevices(self):
         """
@@ -138,6 +134,8 @@ class IOU(Module):
         """
 
         if node in self._nodes:
+            if "ram" in node.settings():
+                node.server().decreaseAllocatedRAM(node.settings()["ram"])
             self._nodes.remove(node)
 
     def iouDevices(self):
@@ -351,9 +349,9 @@ class IOU(Module):
             nodes.append(
                 {"class": IOUDevice.__name__,
                  "name": iou_device["name"],
+                 "ram": iou_device["ram"],
                  "server": iou_device["server"],
-                 "default_symbol": iou_device["default_symbol"],
-                 "hover_symbol": iou_device["hover_symbol"],
+                 "symbol": iou_device["symbol"],
                  "categories": [iou_device["category"]]
                  }
             )

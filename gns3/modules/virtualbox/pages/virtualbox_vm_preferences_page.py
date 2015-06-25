@@ -23,7 +23,6 @@ import copy
 
 from gns3.qt import QtCore, QtGui, QtWidgets
 from gns3.main_window import MainWindow
-from gns3.dialogs.symbol_selection_dialog import SymbolSelectionDialog
 from gns3.dialogs.configuration_dialog import ConfigurationDialog
 
 from .. import VirtualBox
@@ -51,7 +50,6 @@ class VirtualBoxVMPreferencesPage(QtWidgets.QWidget, Ui_VirtualBoxVMPreferencesP
         self.uiEditVirtualBoxVMPushButton.clicked.connect(self._vboxVMEditSlot)
         self.uiDeleteVirtualBoxVMPushButton.clicked.connect(self._vboxVMDeleteSlot)
         self.uiVirtualBoxVMsTreeWidget.itemSelectionChanged.connect(self._vboxVMChangedSlot)
-        self.uiVirtualBoxVMsTreeWidget.itemPressed.connect(self._vboxVMPressedSlot)
 
     def _createSectionItem(self, name):
 
@@ -79,6 +77,11 @@ class VirtualBoxVMPreferencesPage(QtWidgets.QWidget, Ui_VirtualBoxVMPreferencesP
         # fill out the Network section
         section_item = self._createSectionItem("Network")
         QtWidgets.QTreeWidgetItem(section_item, ["Adapters:", str(vbox_vm["adapters"])])
+        QtWidgets.QTreeWidgetItem(section_item, ["Name format:", vbox_vm["port_name_format"]])
+        if vbox_vm["port_segment_size"]:
+            QtWidgets.QTreeWidgetItem(section_item, ["Segment size:", str(vbox_vm["port_segment_size"])])
+        if vbox_vm["first_port_name"]:
+            QtWidgets.QTreeWidgetItem(section_item, ["First port name:", vbox_vm["first_port_name"]])
         QtWidgets.QTreeWidgetItem(section_item, ["Use any adapter:", "{}".format(vbox_vm["use_any_adapter"])])
         QtWidgets.QTreeWidgetItem(section_item, ["Type:", vbox_vm["adapter_type"]])
 
@@ -119,7 +122,7 @@ class VirtualBoxVMPreferencesPage(QtWidgets.QWidget, Ui_VirtualBoxVMPreferencesP
 
             item = QtWidgets.QTreeWidgetItem(self.uiVirtualBoxVMsTreeWidget)
             item.setText(0, self._virtualbox_vms[key]["vmname"])
-            item.setIcon(0, QtGui.QIcon(self._virtualbox_vms[key]["default_symbol"]))
+            item.setIcon(0, QtGui.QIcon(self._virtualbox_vms[key]["symbol"]))
             item.setData(0, QtCore.Qt.UserRole, key)
             self._items.append(item)
             self.uiVirtualBoxVMsTreeWidget.setCurrentItem(item)
@@ -136,6 +139,8 @@ class VirtualBoxVMPreferencesPage(QtWidgets.QWidget, Ui_VirtualBoxVMPreferencesP
             dialog = ConfigurationDialog(vbox_vm["vmname"], vbox_vm, VirtualBoxVMConfigurationPage(), parent=self)
             dialog.show()
             if dialog.exec_():
+                # update the icon
+                item.setIcon(0, QtGui.QIcon(vbox_vm["symbol"]))
                 if vbox_vm["vmname"] != item.text(0):
                     new_key = "{server}:{vmname}".format(server=vbox_vm["server"], name=vbox_vm["vmname"])
                     if new_key in self._virtualbox_vms:
@@ -160,55 +165,6 @@ class VirtualBoxVMPreferencesPage(QtWidgets.QWidget, Ui_VirtualBoxVMPreferencesP
                 del self._virtualbox_vms[key]
                 self.uiVirtualBoxVMsTreeWidget.takeTopLevelItem(self.uiVirtualBoxVMsTreeWidget.indexOfTopLevelItem(item))
 
-    def _vboxVMPressedSlot(self, item, column):
-        """
-        Slot for item pressed.
-
-        :param item: ignored
-        :param column: ignored
-        """
-
-        if QtWidgets.QApplication.mouseButtons() & QtCore.Qt.RightButton:
-            self._showContextualMenu()
-
-    def _showContextualMenu(self):
-        """
-        Contextual menu.
-        """
-
-        menu = QtWidgets.QMenu()
-
-        change_symbol_action = QtWidgets.QAction("Change symbol", menu)
-        change_symbol_action.setIcon(QtGui.QIcon(":/icons/node_conception.svg"))
-        change_symbol_action.setEnabled(len(self.uiVirtualBoxVMsTreeWidget.selectedItems()) == 1)
-        change_symbol_action.triggered.connect(self._changeSymbolSlot)
-        menu.addAction(change_symbol_action)
-
-        delete_action = QtWidgets.QAction("Delete", menu)
-        delete_action.triggered.connect(self._vboxVMDeleteSlot)
-        menu.addAction(delete_action)
-
-        menu.exec_(QtGui.QCursor.pos())
-
-    def _changeSymbolSlot(self):
-        """
-        Change a symbol for a VirtualBox VM.
-        """
-
-        item = self.uiVirtualBoxVMsTreeWidget.currentItem()
-        if item:
-            key = item.data(0, QtCore.Qt.UserRole)
-            vbox_vm = self._virtualbox_vms[key]
-            dialog = SymbolSelectionDialog(self, symbol=vbox_vm["default_symbol"], category=vbox_vm["category"])
-            dialog.show()
-            if dialog.exec_():
-                normal_symbol, selected_symbol = dialog.getSymbols()
-                category = dialog.getCategory()
-                item.setIcon(0, QtGui.QIcon(normal_symbol))
-                vbox_vm["default_symbol"] = normal_symbol
-                vbox_vm["hover_symbol"] = selected_symbol
-                vbox_vm["category"] = category
-
     def loadPreferences(self):
         """
         Loads the VirtualBox VM preferences.
@@ -221,7 +177,7 @@ class VirtualBoxVMPreferencesPage(QtWidgets.QWidget, Ui_VirtualBoxVMPreferencesP
         for key, vbox_vm in self._virtualbox_vms.items():
             item = QtWidgets.QTreeWidgetItem(self.uiVirtualBoxVMsTreeWidget)
             item.setText(0, vbox_vm["vmname"])
-            item.setIcon(0, QtGui.QIcon(vbox_vm["default_symbol"]))
+            item.setIcon(0, QtGui.QIcon(vbox_vm["symbol"]))
             item.setData(0, QtCore.Qt.UserRole, key)
             self._items.append(item)
 

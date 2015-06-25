@@ -16,12 +16,18 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 """
-Dialog to change the topology symbol of NodeItems
+Dialog to change node symbols.
 """
 
+import os
+
 from ..qt import QtSvg, QtCore, QtGui, QtWidgets
+from ..items.svg_node_item import SvgNodeItem
+from ..items.pixmap_node_item import PixmapNodeItem
 from ..ui.symbol_selection_dialog_ui import Ui_SymbolSelectionDialog
-from ..node import Node
+
+import logging
+log = logging.getLogger(__name__)
 
 
 class SymbolSelectionDialog(QtWidgets.QDialog, Ui_SymbolSelectionDialog):
@@ -33,47 +39,36 @@ class SymbolSelectionDialog(QtWidgets.QDialog, Ui_SymbolSelectionDialog):
     :param items: list of items
     """
 
-    def __init__(self, parent, items=None, symbol=None, category=None):
+    def __init__(self, parent, items=None, symbol=None):
 
         super().__init__(parent)
         self.setupUi(self)
 
         self._items = items
         self.uiButtonBox.button(QtWidgets.QDialogButtonBox.Apply).clicked.connect(self._applyPreferencesSlot)
+        self.uiSymbolToolButton.clicked.connect(self._symbolBrowserSlot)
+        self._symbols_dir = QtCore.QStandardPaths.writableLocation(QtCore.QStandardPaths.PicturesLocation)
 
         selected_symbol = symbol
-        selected_category = category
         if not self._items:
             self.uiButtonBox.button(QtWidgets.QDialogButtonBox.Apply).hide()
-
-            # current categories
-            categories = {"Routers": Node.routers,
-                          "Switches": Node.switches,
-                          "End devices": Node.end_devices,
-                          "Security devices": Node.security_devices
-                          }
-
-            index = 0
-            for name, category in categories.items():
-                self.uiCategoryComboBox.addItem(name, category)
-                if category == selected_category:
-                    self.uiCategoryComboBox.setCurrentIndex(index)
-                index += 1
         else:
-            self.uiCategoryLabel.hide()
-            self.uiCategoryComboBox.hide()
-            custom_symbol = items[0].defaultRenderer().objectName()
-            if not custom_symbol:
-                symbol_name = items[0].node().defaultSymbol()
-            else:
-                symbol_name = custom_symbol
-            selected_symbol = symbol_name
+            first_item = items[0]
+            if isinstance(first_item, SvgNodeItem):
+                custom_symbol = first_item.renderer().objectName()
+                if not custom_symbol:
+                    symbol_name = first_item.node().defaultSymbol()
+                else:
+                    symbol_name = custom_symbol
+                selected_symbol = symbol_name
+            elif isinstance(first_item, PixmapNodeItem):
+                self.uiSymbolLineEdit.setText(first_item.pixmapSymbolPath())
 
         self.uiSymbolListWidget.setIconSize(QtCore.QSize(64, 64))
         symbol_resources = QtCore.QResource(":/symbols")
         for symbol in symbol_resources.children():
-            if symbol.endswith(".normal.svg"):
-                name = symbol[:-11]
+            if symbol.endswith(".svg"):
+                name = os.path.splitext(symbol)[0]
                 item = QtWidgets.QListWidgetItem(self.uiSymbolListWidget)
                 item.setText(name)
                 resource_path = ":/symbols/" + symbol
@@ -95,28 +90,47 @@ class SymbolSelectionDialog(QtWidgets.QDialog, Ui_SymbolSelectionDialog):
         current = self.uiSymbolListWidget.currentItem()
         if current:
             name = current.text()
-            path = ":/symbols/{}.normal.svg".format(name)
-            default_renderer = QtSvg.QSvgRenderer(path)
-            default_renderer.setObjectName(path)
-            path = ":/symbols/{}.selected.svg".format(name)
-            hover_renderer = QtSvg.QSvgRenderer(path)
-            hover_renderer.setObjectName(path)
+            path = ":/symbols/{}.svg".format(name)
+            renderer = QtSvg.QSvgRenderer(path)
+            renderer.setObjectName(path)
             for item in self._items:
-                item.setDefaultRenderer(default_renderer)
-                item.setHoverRenderer(hover_renderer)
+                if isinstance(item, SvgNodeItem):
+                    item.setSharedRenderer(renderer)
+                else:
+                    log.warning("Built-in SVG symbol cannot be applied on Pixmap node item")
 
-    def getSymbols(self):
+        symbol_path = self.uiSymbolLineEdit.text()
+        pixmap = QtGui.QPixmap(symbol_path)
+        if not pixmap.isNull():
+            for item in self._items:
+                if isinstance(item, PixmapNodeItem):
+                    item.setPixmap(pixmap)
+                else:
+                    log.warning("Custom pixmap symbol cannot be applied on SVG node item")
 
-        current = self.uiSymbolListWidget.currentItem()
-        if current:
+    def getSymbol(self):
+
+        if self.uiSymbolListWidget.isEnabled():
+            current = self.uiSymbolListWidget.currentItem()
             name = current.text()
-            normal_symbol = ":/symbols/{}.normal.svg".format(name)
-            selected_symbol = ":/symbols/{}.selected.svg".format(name)
-        return normal_symbol, selected_symbol
+            normal_symbol = ":/symbols/{}.svg".format(name)
+        else:
+            normal_symbol = self.uiSymbolLineEdit.text()
+        return normal_symbol
 
-    def getCategory(self):
+    def _symbolBrowserSlot(self):
 
-        return self.uiCategoryComboBox.itemData(self.uiCategoryComboBox.currentIndex())
+        # supported image file formats
+        file_formats = "PNG File (*.png);;JPG File (*.jpeg *.jpg);;BMP File (*.bmp);;XPM File (*.xpm *.xbm);;PPM File (*.ppm);;TIFF File (*.tiff);;All files (*.*)"
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Image", self._symbols_dir, file_formats)
+        if not path:
+            return
+
+        self._symbols_dir = os.path.dirname(path)
+        self.uiSymbolListWidget.setEnabled(False)
+        self.uiSymbolLineEdit.clear()
+        self.uiSymbolLineEdit.setText(path)
+        self.uiSymbolLineEdit.setToolTip('<img src="{}"/>'.format(path))
 
     def done(self, result):
         """

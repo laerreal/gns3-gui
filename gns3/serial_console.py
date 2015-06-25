@@ -19,12 +19,9 @@
 Functions to start external serial console terminals.
 """
 
-import re
-import os
 import sys
 import shlex
 import subprocess
-import tempfile
 from .main_window import MainWindow
 
 import logging

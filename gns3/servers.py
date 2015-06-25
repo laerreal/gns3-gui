@@ -33,27 +33,24 @@ import subprocess
 from .qt import QtCore, QtNetwork, QtWidgets
 from .network_client import getNetworkClientInstance, getNetworkUrl
 from .local_config import LocalConfig
-from .settings import LOCAL_SERVER_SETTINGS
+from .settings import SERVERS_SETTINGS
 from .local_server_config import LocalServerConfig
-from .gns3_vm import GNS3VM
+from .progress import Progress
 from collections import OrderedDict
 
 import logging
 log = logging.getLogger(__name__)
 
 
-class Servers(QtCore.QObject):
+class Servers():
 
     """
     Server management class.
     """
 
-    # to let other pages know about remote server updates
-    updated_signal = QtCore.Signal()
-
     def __init__(self):
 
-        super().__init__()
+        self._settings = {}
         self._local_server = None
         self._vm_server = None
         self._remote_servers = {}
@@ -64,19 +61,20 @@ class Servers(QtCore.QObject):
         self._local_server_proccess = None
         self._network_manager = QtNetwork.QNetworkAccessManager()
         self._network_manager.sslErrors.connect(self._handleSslErrors)
-        self._local_server_settings = {}
         self._remote_server_iter_pos = 0
         self._loadSettings()
-        self._initLocalServer()
+        self.registerLocalServer()
 
-    def _initLocalServer(self):
+    def registerLocalServer(self):
         """
-        Create a new local server
+        Register a new local server.
         """
-        host = self._local_server_settings["host"]
-        port = self._local_server_settings["port"]
-        user = self._local_server_settings["user"]
-        password = self._local_server_settings["password"]
+
+        local_server_settings = self._settings["local_server"]
+        host = local_server_settings["host"]
+        port = local_server_settings["port"]
+        user = local_server_settings["user"]
+        password = local_server_settings["password"]
         self._local_server = getNetworkClientInstance({"host": host, "port": port, "user": user, "password": password},
                                                       self._network_manager)
         self._local_server.setLocal(True)
@@ -130,24 +128,21 @@ class Servers(QtCore.QObject):
             reply.ignoreSslErrors()
             return
 
-        server.progressCallbackDisable()
+        with Progress.instance().context(enable=False):
+            from .main_window import MainWindow
+            main_window = MainWindow.instance()
+            proceed = QtWidgets.QMessageBox.warning(
+                main_window,
+                "SSL Error",
+                "SSL certificate for:\n {} is invalid or someone is trying to intercept the communication.\nContinue?".format(reply.url().toDisplayString()),
+                QtWidgets.QMessageBox.Yes,
+                QtWidgets.QMessageBox.No)
 
-        from .main_window import MainWindow
-        main_window = MainWindow.instance()
-        proceed = QtWidgets.QMessageBox.warning(
-            main_window,
-            "SSL Error",
-            "SSL certificate for:\n {} is invalid or someone is trying to intercept the communication.\nContinue?".format(reply.url().toDisplayString()),
-            QtWidgets.QMessageBox.Yes,
-            QtWidgets.QMessageBox.No)
-
-        if proceed == QtWidgets.QMessageBox.Yes:
-            server.setAcceptInsecureCertificate(True)
-            self._saveSettings()
-            reply.ignoreSslErrors()
-            log.info("SSL error ignored for %s", reply.url().toDisplayString())
-
-        server.progressCallbackEnable()
+            if proceed == QtWidgets.QMessageBox.Yes:
+                server.setAcceptInsecureCertificate(True)
+                self._saveSettings()
+                reply.ignoreSslErrors()
+                log.info("SSL error ignored for %s", reply.url().toDisplayString())
 
     def _passwordGenerate(self):
         """
@@ -160,68 +155,84 @@ class Servers(QtCore.QObject):
         Loads the server settings from the persistent settings file.
         """
 
-        local_config = LocalConfig.instance()
-        self._local_server_settings = local_config.loadSectionSettings("LocalServer", LOCAL_SERVER_SETTINGS)
-        if not os.path.exists(self._local_server_settings["path"]):
-            self._local_server_settings["path"] = self._findLocalServer(self)
+        self._settings = LocalConfig.instance().loadSectionSettings("Servers", SERVERS_SETTINGS)
 
-        if not os.path.exists(self._local_server_settings["ubridge_path"]):
-            self._local_server_settings["ubridge_path"] = self._findUbridge(self)
+        local_server_settings = self._settings["local_server"]
+        if not os.path.exists(local_server_settings["path"]):
+            local_server_settings["path"] = self._findLocalServer(self)
 
-        if "user" not in self._local_server_settings:
-            self._local_server_settings["user"] = self._passwordGenerate()
-            self._local_server_settings["password"] = self._passwordGenerate()
+        if not os.path.exists(local_server_settings["ubridge_path"]):
+            local_server_settings["ubridge_path"] = self._findUbridge(self)
 
-        settings = local_config.settings()
-        if "RemoteServers" in settings:
-            for remote_server in settings["RemoteServers"]:
-                self._addRemoteServer(remote_server.get("protocol", "http"),
-                                      remote_server["host"],
-                                      remote_server["port"],
-                                      user=remote_server.get("user", None),
-                                      ssh_key=remote_server.get("ssh_key", None),
-                                      ssh_port=remote_server.get("ssh_port", None),
-                                      accept_insecure_certificate=remote_server.get("accept_insecure_certificate", False))
+        if "user" not in local_server_settings or len(local_server_settings["user"]) == 0:
+            local_server_settings["user"] = self._passwordGenerate()
+            local_server_settings["password"] = self._passwordGenerate()
+            self._saveSettings()
 
-        # keep the config file sync
-        self._saveSettings()
-        return settings
+        for remote_server in self._settings["remote_servers"]:
+            self._addRemoteServer(remote_server.get("protocol", "http"),
+                                  remote_server["host"],
+                                  remote_server["port"],
+                                  ram_limit=remote_server.get("ram_limit", 0),
+                                  user=remote_server.get("user", None),
+                                  ssh_key=remote_server.get("ssh_key", None),
+                                  ssh_port=remote_server.get("ssh_port", None),
+                                  accept_insecure_certificate=remote_server.get("accept_insecure_certificate", False))
 
     def _saveSettings(self):
         """
         Saves the server settings to a persistent settings file.
         """
 
-        # save the settings
-        LocalConfig.instance().saveSectionSettings("LocalServer", self._local_server_settings)
-
         # save the remote servers
-        remote_servers = []
+        self._settings["remote_servers"] = []
         for server in self._remote_servers.values():
-            remote_servers.append(server.settings())
-        LocalConfig.instance().setSettings({"RemoteServers": remote_servers})
+            self._settings["remote_servers"].append(server.settings())
+
+        # save the settings
+        LocalConfig.instance().saveSectionSettings("Servers", self._settings)
 
         # save some settings to the local server config files
+        local_server_settings = self._settings["local_server"]
         server_settings = OrderedDict([
-            ("host", self._local_server_settings["host"]),
-            ("port", self._local_server_settings["port"]),
-            ("ubridge_path", self._local_server_settings["ubridge_path"]),
-            ("auth", self._local_server_settings.get("auth", False)),
-            ("user", self._local_server_settings.get("user", "")),
-            ("password", self._local_server_settings.get("password", "")),
-            ("images_path", self._local_server_settings["images_path"]),
-            ("projects_path", self._local_server_settings["projects_path"]),
-            ("console_start_port_range", self._local_server_settings["console_start_port_range"]),
-            ("console_end_port_range", self._local_server_settings["console_end_port_range"]),
-            ("udp_start_port_range", self._local_server_settings["udp_start_port_range"]),
-            ("udp_start_end_range", self._local_server_settings["udp_end_port_range"]),
-            ("report_errors", self._local_server_settings["report_errors"]),
+            ("host", local_server_settings["host"]),
+            ("port", local_server_settings["port"]),
+            ("ubridge_path", local_server_settings["ubridge_path"]),
+            ("auth", local_server_settings.get("auth", False)),
+            ("user", local_server_settings.get("user", "")),
+            ("password", local_server_settings.get("password", "")),
+            ("images_path", local_server_settings["images_path"]),
+            ("projects_path", local_server_settings["projects_path"]),
+            ("configs_path", local_server_settings["configs_path"]),
+            ("console_start_port_range", local_server_settings["console_start_port_range"]),
+            ("console_end_port_range", local_server_settings["console_end_port_range"]),
+            ("udp_start_port_range", local_server_settings["udp_start_port_range"]),
+            ("udp_start_end_range", local_server_settings["udp_end_port_range"]),
+            ("report_errors", local_server_settings["report_errors"]),
         ])
         config = LocalServerConfig.instance()
         config.saveSettings("Server", server_settings)
 
         if self._local_server and self._local_server.connected():
             self._local_server.post("/config/reload", None)
+
+    def settings(self):
+        """
+        Returns the servers settings.
+
+        :returns: settings dictionary
+        """
+
+        return self._settings
+
+    def setSettings(self, settings):
+        """
+        Set the servers settings.
+
+        :param settings: settings dictionary
+        """
+
+        self._settings.update(settings)
 
     def localServerSettings(self):
         """
@@ -230,7 +241,7 @@ class Servers(QtCore.QObject):
         :returns: local server settings (dict)
         """
 
-        return self._local_server_settings
+        return self._settings["local_server"]
 
     def setLocalServerSettings(self, settings):
         """
@@ -239,9 +250,27 @@ class Servers(QtCore.QObject):
         :param settings: local server settings (dict)
         """
 
-        self._local_server_settings.update(settings)
-        if settings["host"] != self._local_server_settings["host"] or settings["port"] != self._local_server_settings["port"]:
-            self._initLocalServer()
+        local_server_settings = self._settings["local_server"]
+        local_server_settings.update(settings)
+
+    def vmSettings(self):
+        """
+        Returns the GNS3 VM settings.
+
+        :returns: GNS3 VM settings (dict)
+        """
+
+        return self._settings["vm"]
+
+    def setVMsettings(self, settings):
+        """
+        Set new GNS3 VM settings.
+
+        :param settings: GNS3 VM settings (dict)
+        """
+
+        vm_settings = self._settings["vm"]
+        vm_settings.update(settings)
 
     def localServerAutoStart(self):
         """
@@ -251,7 +280,7 @@ class Servers(QtCore.QObject):
         :returns: boolean
         """
 
-        return self._local_server_settings["auto_start"]
+        return self._settings["local_server"]["auto_start"]
 
     def localServerPath(self):
         """
@@ -260,7 +289,7 @@ class Servers(QtCore.QObject):
         :returns: path to local server program.
         """
 
-        return self._local_server_settings["path"]
+        return self._settings["local_server"]["path"]
 
     def initLocalServer(self):
         """
@@ -344,14 +373,14 @@ class Servers(QtCore.QObject):
                                                                               host=host,
                                                                               port=port)
 
-        if self._local_server_settings["allow_console_from_anywhere"]:
+        if self._settings["local_server"]["allow_console_from_anywhere"]:
             # allow connections to console from remote addresses
             command += " --allow"
 
         if logging.getLogger().isEnabledFor(logging.DEBUG):
             command += " --debug"
 
-        settings_dir = os.path.dirname(QtCore.QSettings().fileName())
+        settings_dir = os.path.normpath(os.path.dirname(QtCore.QSettings().fileName()))
         if os.path.isdir(settings_dir):
             # save server logging info to a file in the settings directory
             logpath = os.path.join(settings_dir, "gns3_server.log")
@@ -363,7 +392,7 @@ class Servers(QtCore.QObject):
                     pass
                 except OSError as e:
                     log.warn("could not delete server log file {}: {}".format(logpath, e))
-            command += " --log={}".format(logpath)
+            command += ' --log="{}"'.format(logpath)
 
         log.info("Starting local server process with {}".format(command))
         try:
@@ -409,7 +438,12 @@ class Servers(QtCore.QObject):
                 except subprocess.TimeoutExpired:
                     # the local server couldn't be stopped with the normal procedure
                     if sys.platform.startswith("win"):
-                        self._local_server_proccess.send_signal(signal.CTRL_BREAK_EVENT)
+                        try:
+                            self._local_server_proccess.send_signal(signal.CTRL_BREAK_EVENT)
+                        # If the process is already dead we received a permission error
+                        # it's a race condition between the timeout and send signal
+                        except PermissionError:
+                            pass
                     else:
                         self._local_server_proccess.send_signal(signal.SIGINT)
                     try:
@@ -441,11 +475,17 @@ class Servers(QtCore.QObject):
         Initialize the GNS3 VM server.
         """
 
-        #TODO: handle authentication and/or SSH?
-        gns3_vm = GNS3VM.instance().server_host()
-        server_info = {"host": gns3_vm.server_host(), "port": gns3_vm.server_port(), "protocol": "http"}
+        gns3_vm_settings = self._settings["vm"]
+        server_info = {
+            "host": gns3_vm_settings["server_host"],
+            "port": gns3_vm_settings["server_port"],
+            "protocol": "http",
+            "user": gns3_vm_settings["user"],
+            "password": gns3_vm_settings["password"]
+        }
         server = getNetworkClientInstance(server_info, self._network_manager)
         server.setLocal(False)
+        server.setGNS3VM(True)
         self._vm_server = server
         log.info("GNS3 VM server initialized {}".format(server.url()))
 
@@ -458,13 +498,14 @@ class Servers(QtCore.QObject):
 
         return self._vm_server
 
-    def _addRemoteServer(self, protocol, host, port, user=None, ssh_port=None, ssh_key=None, accept_insecure_certificate=False):
+    def _addRemoteServer(self, protocol, host, port, ram_limit=0, user=None, ssh_port=None, ssh_key=None, accept_insecure_certificate=False):
         """
         Adds a new remote server.
 
         :param protocol: Server protocol
         :param host: host or address of the server
         :param port: port of the server (integer)
+        :param ram_limit: maximum RAM to be used (integer)
         :param user: user login or None
         :param ssh_port: ssh port or None
         :param ssh_key: ssh key
@@ -473,7 +514,13 @@ class Servers(QtCore.QObject):
         :returns: the new remote server
         """
 
-        server = {"host": host, "protocol": protocol, "user": user, "port": port, "ssh_port": ssh_port, "ssh_key": ssh_key}
+        server = {"host": host,
+                  "port": port,
+                  "ram_limit": ram_limit,
+                  "protocol": protocol,
+                  "user": user,
+                  "ssh_port": ssh_port,
+                  "ssh_key": ssh_key}
         if accept_insecure_certificate:
             server["accept_insecure_certificate"] = accept_insecure_certificate
         server = getNetworkClientInstance(server, self._network_manager)
@@ -501,7 +548,7 @@ class Servers(QtCore.QObject):
             if server.url() == url:
                 return server
 
-        return self._addRemoteServer(protocol, host, port, user)
+        return self._addRemoteServer(protocol, host, port, user=user, **settings)
 
     def getServerFromString(self, server_name):
         """
@@ -512,6 +559,8 @@ class Servers(QtCore.QObject):
             return self._local_server
         elif server_name == "vm":
             return self._vm_server
+        elif server_name == "load-balance":
+            return self.anyRemoteServer()
 
         if "://" in server_name:
             url_settings = urllib.parse.urlparse(server_name)
@@ -523,8 +572,29 @@ class Servers(QtCore.QObject):
                 port = url_settings.port
             return self.getRemoteServer(url_settings.scheme, url_settings.hostname, port, url_settings.username, settings=settings)
         else:
-            (host, port) = string.server_name(":")
+            (host, port) = server_name.split(":")
             return self.getRemoteServer("http", host, port, None)
+
+    def anyRemoteServer(self, ram=0):
+        """
+        Returns a remote server for load balancing.
+
+        :param ram: RAM amount to be allocated by the node
+
+        :returns: remote server (HTTPClient instance)
+        """
+
+        if self._settings["load_balancing_method"] == "ram_usage":
+            for server in self._remote_servers.values():
+                if not server.RAMLimit():
+                    return server
+                if (server.allocatedRAM() + ram) <= server.RAMLimit():
+                    if ram > 0:
+                        server.increaseAllocatedRAM(ram)
+                    return server
+        elif self._settings["load_balancing_method"] == "round_robin":
+            return next(iter(self))
+        return next(iter(self))  # default is Round-Robin
 
     def updateRemoteServers(self, servers):
         """
@@ -548,8 +618,6 @@ class Servers(QtCore.QObject):
             new_server.setLocal(False)
             self._remote_servers[server_id] = new_server
             log.info("New remote server connection {} registered".format(new_server.url()))
-
-        self.updated_signal.emit()
 
     def remoteServers(self):
         """

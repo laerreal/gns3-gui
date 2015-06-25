@@ -109,20 +109,8 @@ class VPCSDevice(VM):
         :param error: indicates an error (boolean)
         """
 
-        if error:
-            log.error("error while setting up {}: {}".format(self.name(), result["message"]))
-            self.server_error_signal.emit(self.id(), result["message"])
+        if not super()._setupCallback(result, error=error, **kwargs):
             return
-
-        self._vm_id = result["vm_id"]
-        # update the settings using the defaults sent by the server
-        for name, value in result.items():
-            if name in self._settings and self._settings[name] != value:
-                log.info("VPCS instance {} setting up and updating {} from '{}' to '{}'".format(self.name(),
-                                                                                                name,
-                                                                                                self._settings[name],
-                                                                                                value))
-                self._settings[name] = value
 
         if self._loading:
             self.loaded_signal.emit()
@@ -450,17 +438,7 @@ class VPCSDevice(VM):
         :returns: symbol path (or resource).
         """
 
-        return ":/symbols/computer.normal.svg"
-
-    @staticmethod
-    def hoverSymbol():
-        """
-        Returns the symbol to use when this node is hovered.
-
-        :returns: symbol path (or resource).
-        """
-
-        return ":/symbols/computer.selected.svg"
+        return ":/symbols/computer.svg"
 
     @staticmethod
     def symbolName():
