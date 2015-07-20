@@ -27,29 +27,12 @@ DOCKER_SETTINGS = {
     "use_local_server": True
 }
 
-DOCKER_SETTING_TYPES = {
-    "docker_url": str,
-    "docker_user": str,
-    "use_local_server": bool
-}
-
 # FIXME: symbols
 DOCKER_CONTAINER_SETTINGS = {
-    "default_symbol": ":/symbols/vbox_guest.normal.svg",
-    "hover_symbol": ":/symbols/vbox_guest.selected.svg",
+    "symbol": ":/symbols/vbox_guest.svg",
     "category": Node.end_devices,
-    "adapters": 1,
+    "adapters": 4,
     "adapter_type": "veth",
     "console": "gnome-terminal",
     "enable_remote_console": False,
-}
-
-DOCKER_CONTAINER_SETTING_TYPES = {
-    "default_symbol": str,
-    "hover_symbol": str,
-    "category": int,
-    "adapters": int,
-    "adapter_type": str,
-    "console": str,
-    "enable_remote_console": bool
 }

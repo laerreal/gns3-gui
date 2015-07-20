@@ -103,7 +103,6 @@ class DockerVM(VM):
         :param result: server response
         :param error: indicates an error (boolean)
         """
-
         if not super()._setupCallback(result, error=error, **kwargs):
             return
 
@@ -243,20 +242,7 @@ class DockerVM(VM):
                 nio_object = None
                 if nio.lower().startswith("nio_udp"):
                     nio_object = self._createNIOUDP(nio)
-                if nio.lower().startswith("nio_gen_eth"):
-                    nio_object = self._createNIOGenericEthernet(nio)
-                if nio.lower().startswith("nio_gen_linux"):
-                    nio_object = self._createNIOLinuxEthernet(nio)
-                if nio.lower().startswith("nio_nat"):
-                    nio_object = self._createNIONAT(nio)
-                if nio.lower().startswith("nio_tap"):
-                    nio_object = self._createNIOTAP(nio)
-                if nio.lower().startswith("nio_unix"):
-                    nio_object = self._createNIOUNIX(nio)
-                if nio.lower().startswith("nio_vde"):
-                    nio_object = self._createNIOVDE(nio)
-                if nio.lower().startswith("nio_null"):
-                    nio_object = self._createNIONull(nio)
+                    print("nio_object")
                 if nio_object is None:
                     log.error("Could not create NIO object from {}".format(nio))
                     continue

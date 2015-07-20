@@ -121,7 +121,7 @@ class DockerVMPreferencesPage(
             item = QtWidgets.QTreeWidgetItem(self.uiDockerVMsTreeWidget)
             item.setText(0, self._docker_images[key]["imagename"])
             item.setIcon(
-                0, QtGui.QIcon(self._docker_images[key]["default_symbol"]))
+                0, QtGui.QIcon(self._docker_images[key]["symbol"]))
             item.setData(0, QtCore.Qt.UserRole, key)
             self._items.append(item)
             self.uiDockerVMsTreeWidget.setCurrentItem(item)
@@ -196,15 +196,14 @@ class DockerVMPreferencesPage(
             key = item.data(0, QtCore.Qt.UserRole)
             docker_image = self._docker_images[key]
             dialog = SymbolSelectionDialog(
-                self, symbol=docker_image["default_symbol"],
+                self, symbol=docker_image["symbol"],
                 category=docker_image["category"])
             dialog.show()
             if dialog.exec_():
                 normal_symbol, selected_symbol = dialog.getSymbols()
                 category = dialog.getCategory()
                 item.setIcon(0, QtGui.QIcon(normal_symbol))
-                docker_image["default_symbol"] = normal_symbol
-                docker_image["hover_symbol"] = selected_symbol
+                docker_image["symbol"] = normal_symbol
                 docker_image["category"] = category
 
     def loadPreferences(self):
@@ -217,7 +216,7 @@ class DockerVMPreferencesPage(
         for key, docker_image in self._docker_images.items():
             item = QtWidgets.QTreeWidgetItem(self.uiDockerVMsTreeWidget)
             item.setText(0, docker_image["imagename"])
-            item.setIcon(0, QtGui.QIcon(docker_image["default_symbol"]))
+            item.setIcon(0, QtGui.QIcon(docker_image["symbol"]))
             item.setData(0, QtCore.Qt.UserRole, key)
             self._items.append(item)
 

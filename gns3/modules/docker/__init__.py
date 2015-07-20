@@ -45,14 +45,14 @@ class Docker(Module):
 
     def _loadSettings(self):
         """Loads the settings from the persistent settings file."""
-
         local_config = LocalConfig.instance()
-        self._settings = local_config.loadSectionSettings(self.__class__.__name__, DOCKER_SETTINGS)
+        self._settings = local_config.loadSectionSettings(
+            self.__class__.__name__, DOCKER_SETTINGS)
 
     def _saveSettings(self):
         """Saves the settings to the persistent settings file."""
-
-        LocalConfig.instance().saveSectionSettings(self.__class__.__name__, self._settings)
+        LocalConfig.instance().saveSectionSettings(
+            self.__class__.__name__, self._settings)
 
     def _loadDockerImages(self):
         """Load the Docker images from the persistent settings file."""
@@ -102,8 +102,7 @@ class Docker(Module):
         self._nodes.append(node)
 
     def removeNode(self, node):
-        """
-        Removes a node from this module.
+        """Removes a node from this module.
 
         :param node: Node instance
         """
@@ -119,8 +118,7 @@ class Docker(Module):
         return self._settings
 
     def setSettings(self, settings):
-        """
-        Sets the module settings
+        """Sets the module settings
 
         :param settings: module settings (dictionary)
         """
@@ -128,8 +126,7 @@ class Docker(Module):
         self._saveSettings()
 
     def createNode(self, node_class, server, project):
-        """
-        Creates a new node.
+        """Creates a new node.
 
         :param node_class: Node object
         :param server: HTTPClient instance
@@ -221,8 +218,7 @@ class Docker(Module):
                 "class": DockerVM.__name__,
                 "name": docker_image["imagename"],
                 "server": docker_image["server"],
-                "default_symbol": docker_image["default_symbol"],
-                "hover_symbol": docker_image["hover_symbol"],
+                "symbol": docker_image["symbol"],
                 "categories": [docker_image["category"]]
             })
         return nodes
