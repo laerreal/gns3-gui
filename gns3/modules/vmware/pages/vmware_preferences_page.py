@@ -48,8 +48,7 @@ class VMwarePreferencesPage(QtWidgets.QWidget, Ui_VMwarePreferencesPageWidget):
         if sys.platform.startswith("darwin"):
             # we do not support VMware Fusion for now
             self.uiUseLocalServercheckBox.setChecked(False)
-            self.uiUseLocalServercheckBox.setEnabled(False)
-            #self.uiHostTypeComboBox.addItem("VMware Fusion", "fusion")
+            self.uiHostTypeComboBox.addItem("VMware Fusion", "fusion")
         else:
             self.uiHostTypeComboBox.addItem("VMware Player", "player")
             self.uiHostTypeComboBox.addItem("VMware Workstation", "ws")
@@ -71,11 +70,26 @@ class VMwarePreferencesPage(QtWidgets.QWidget, Ui_VMwarePreferencesPageWidget):
         if not path:
             return
 
+        if self._checkVmrunPath(path):
+            self.uiVmrunPathLineEdit.setText(os.path.normpath(path))
+
+    def _checkVmrunPath(self, path):
+        """
+        Checks that the vmrun path is valid.
+
+        :param path: vmrun path
+        :returns: boolean
+        """
+
+        if not os.path.exists(path):
+            QtWidgets.QMessageBox.critical(self, "vmrun", '"{}" does not exist'.format(path))
+            return False
+
         if not os.access(path, os.X_OK):
             QtWidgets.QMessageBox.critical(self, "vmrun", "{} is not an executable".format(os.path.basename(path)))
-            return
+            return False
 
-        self.uiVmrunPathLineEdit.setText(os.path.normpath(path))
+        return True
 
     def _restoreDefaultsSlot(self):
         """
@@ -113,7 +127,11 @@ class VMwarePreferencesPage(QtWidgets.QWidget, Ui_VMwarePreferencesPageWidget):
             self.uiHostTypeComboBox.setCurrentIndex(index)
         self.uiVMnetStartRangeSpinBox.setValue(settings["vmnet_start_range"])
         self.uiVMnetEndRangeSpinBox.setValue(settings["vmnet_end_range"])
-        self.uiUseLocalServercheckBox.setChecked(settings["use_local_server"])
+        # VMware fusion is not supported for the moment
+        if sys.platform.startswith("darwin"):
+            self.uiUseLocalServercheckBox.setChecked(False)
+        else:
+            self.uiUseLocalServercheckBox.setChecked(settings["use_local_server"])
 
     def loadPreferences(self):
         """
@@ -128,10 +146,13 @@ class VMwarePreferencesPage(QtWidgets.QWidget, Ui_VMwarePreferencesPageWidget):
         Saves VMware preferences.
         """
 
-        new_settings = {}
-        new_settings["vmrun_path"] = self.uiVmrunPathLineEdit.text()
-        new_settings["host_type"] = self.uiHostTypeComboBox.itemData(self.uiHostTypeComboBox.currentIndex())
-        new_settings["vmnet_start_range"] = self.uiVMnetStartRangeSpinBox.value()
-        new_settings["vmnet_end_range"] = self.uiVMnetEndRangeSpinBox.value()
-        new_settings["use_local_server"] = self.uiUseLocalServercheckBox.isChecked()
+        vmrun_path = self.uiVmrunPathLineEdit.text().strip()
+        if vmrun_path and self.uiUseLocalServercheckBox.isChecked() and not self._checkVmrunPath(vmrun_path):
+            return
+
+        new_settings = {"vmrun_path": vmrun_path,
+                        "host_type": self.uiHostTypeComboBox.itemData(self.uiHostTypeComboBox.currentIndex()),
+                        "vmnet_start_range": self.uiVMnetStartRangeSpinBox.value(),
+                        "vmnet_end_range": self.uiVMnetEndRangeSpinBox.value(),
+                        "use_local_server": self.uiUseLocalServercheckBox.isChecked()}
         VMware.instance().setSettings(new_settings)

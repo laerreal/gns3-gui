@@ -22,6 +22,7 @@ VMware module implementation.
 import os
 import sys
 import shutil
+import subprocess
 
 from gns3.qt import QtWidgets
 from gns3.local_server_config import LocalServerConfig
@@ -64,6 +65,7 @@ class VMware(Module):
         :return: path to vmrun
         """
 
+        vmrun_path = None
         if sys.platform.startswith("win"):
             vmrun_path = shutil.which("vmrun")
             if vmrun_path is None:
@@ -74,13 +76,40 @@ class VMware(Module):
                 elif os.path.exists(vmrun_vix):
                     vmrun_path = vmrun_vix
         elif sys.platform.startswith("darwin"):
-            vmrun_path = "/Applications/VMware Fusion.app/Contents/Library/vmrun"
+            vmware_fusion_vmrun_path = "/Applications/VMware Fusion.app/Contents/Library/vmrun"
+            if os.path.exists(vmware_fusion_vmrun_path):
+                vmrun_path = vmware_fusion_vmrun_path
         else:
             vmrun_path = shutil.which("vmrun")
 
         if vmrun_path is None:
             return ""
-        return vmrun_path
+        return os.path.abspath(vmrun_path)
+
+    @staticmethod
+    def _determineHostType(self):
+
+        if sys.platform.startswith("win"):
+            output = self._settings["vmrun_path"]
+        elif sys.platform.startswith("darwin"):
+            return "fusion"
+        else:
+            vmware_path = shutil.which("vmware")
+            if vmware_path:
+                command = [vmware_path, "-v"]
+                log.debug("Executing vmware with command: {}".format(command))
+                try:
+                    output = subprocess.check_output(command).decode("utf-8", errors="ignore").strip()
+                except (OSError, subprocess.SubprocessError) as e:
+                    log.error("Could not execute {}: {}".format("".join(command), e))
+                    return "ws"
+            else:
+                log.error("vmware command not found")
+                return "ws"
+        if "VMware Workstation" in output:
+            return "ws"
+        else:
+            return "player"
 
     def _loadSettings(self):
         """
@@ -89,10 +118,9 @@ class VMware(Module):
 
         local_config = LocalConfig.instance()
         self._settings = local_config.loadSectionSettings(self.__class__.__name__, VMWARE_SETTINGS)
-
         if not os.path.exists(self._settings["vmrun_path"]):
             self._settings["vmrun_path"] = self._findVmrun(self)
-
+            self._settings["host_type"] = self._determineHostType(self)
         self._loadVMwareVMs()
 
     def _saveSettings(self):
@@ -133,8 +161,9 @@ class VMware(Module):
                 vm_settings = VMWARE_VM_SETTINGS.copy()
                 vm_settings.update(vm)
                 # for backward compatibility before version 1.4
-                vm_settings["symbol"] = vm_settings.get("default_symbol", vm_settings["symbol"])
-                vm_settings["symbol"] = vm_settings["symbol"][:-11] + ".svg" if vm_settings["symbol"].endswith("normal.svg") else vm_settings["symbol"]
+                if "symbol" not in vm_settings:
+                    vm_settings["symbol"] = vm_settings.get("default_symbol", vm_settings["symbol"])
+                    vm_settings["symbol"] = vm_settings["symbol"][:-11] + ".svg" if vm_settings["symbol"].endswith("normal.svg") else vm_settings["symbol"]
                 self._vmware_vms[key] = vm_settings
 
     def _saveVMwareVMs(self):

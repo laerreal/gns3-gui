@@ -56,6 +56,8 @@ from .items.shape_item import ShapeItem
 from .items.rectangle_item import RectangleItem
 from .items.ellipse_item import EllipseItem
 from .items.image_item import ImageItem
+from .items.pixmap_image_item import PixmapImageItem
+from .items.svg_image_item import SvgImageItem
 
 log = logging.getLogger(__name__)
 
@@ -222,15 +224,19 @@ class GraphicsView(QtWidgets.QGraphicsView):
             self._adding_ellipse = False
             self.setCursor(QtCore.Qt.ArrowCursor)
 
-    def addImage(self, pixmap, image_path):
+    def addImage(self, image, image_path):
         """
         Adds an image.
 
-        :param pixmap: QPixmap instance
+        :param image: QPixmap or QSvgRenderer instance
         :param image_path: path to the image
         """
 
-        image_item = ImageItem(pixmap, image_path)
+        if isinstance(image, QtSvg.QSvgRenderer):
+            # use a SVG image item if this is a valid SVG file
+            image_item = SvgImageItem(image, image_path)
+        else:
+            image_item = PixmapImageItem(image, image_path)
         # center the image on the scene
         x = image_item.pos().x() - (image_item.boundingRect().width() / 2)
         y = image_item.pos().y() - (image_item.boundingRect().height() / 2)
@@ -736,6 +742,7 @@ class GraphicsView(QtWidgets.QGraphicsView):
             change_symbol_action.triggered.connect(self.changeSymbolActionSlot)
             menu.addAction(change_symbol_action)
 
+        if True in list(map(lambda item: isinstance(item, NodeItem) and hasattr(item.node(), "vmDir"), items)):
             # Action: Show in file manager
             show_in_file_manager_action = QtWidgets.QAction("Show in file manager", menu)
             show_in_file_manager_action.setIcon(QtGui.QIcon(':/icons/open.svg'))
@@ -953,7 +960,7 @@ class GraphicsView(QtWidgets.QGraphicsView):
         """
 
         for item in self.scene().selectedItems():
-            if isinstance(item, NodeItem) and item.node().initialized():
+            if isinstance(item, NodeItem) and hasattr(item.node(), "vmDir") and item.node().initialized():
                 node = item.node()
                 vm_dir = node.vmDir()
                 if vm_dir is None:
@@ -1267,9 +1274,9 @@ class GraphicsView(QtWidgets.QGraphicsView):
                     node.setIdlepc(idlepc)
             # apply the idle-pc to templates with the same IOS image
             router.module().updateImageIdlepc(ios_image, idlepc)
-        QtWidgets.QMessageBox.information(self, "Auto Idle-PC", "Idle-PC value {} has been applied on {} and all routers with IOS image {}".format(idlepc,
-                                                                                                                                                   router.name(),
-                                                                                                                                                   ios_image))
+            QtWidgets.QMessageBox.information(self, "Auto Idle-PC", "Idle-PC value {} has been applied on {} and all routers with IOS image {}".format(idlepc,
+                                                                                                                                                       router.name(),
+                                                                                                                                                       ios_image))
 
     def duplicateActionSlot(self):
         """

@@ -64,21 +64,26 @@ class VirtualBox(Module):
         :return: path to VBoxManage
         """
 
+        vboxmanage_path = None
         if sys.platform.startswith("win"):
             if "VBOX_INSTALL_PATH" in os.environ:
-                vboxmanage_path = os.path.join(os.environ["VBOX_INSTALL_PATH"], "VBoxManage.exe")
+                vboxmanage_path_windows = os.path.join(os.environ["VBOX_INSTALL_PATH"], "VBoxManage.exe")
+                if os.path.exists(vboxmanage_path_windows):
+                    vboxmanage_path = vboxmanage_path_windows
             elif "VBOX_MSI_INSTALL_PATH" in os.environ:
-                vboxmanage_path = os.path.join(os.environ["VBOX_MSI_INSTALL_PATH"], "VBoxManage.exe")
-            else:
-                vboxmanage_path = "VBoxManage.exe"
+                vboxmanage_path_windows = os.path.join(os.environ["VBOX_MSI_INSTALL_PATH"], "VBoxManage.exe")
+                if os.path.exists(vboxmanage_path_windows):
+                    vboxmanage_path = vboxmanage_path_windows
         elif sys.platform.startswith("darwin"):
-            vboxmanage_path = "/Applications/VirtualBox.app/Contents/MacOS/VBoxManage"
+            vboxmanage_path_osx = "/Applications/VirtualBox.app/Contents/MacOS/VBoxManage"
+            if os.path.exists(vboxmanage_path_osx):
+                vboxmanage_path = vboxmanage_path_osx
         else:
             vboxmanage_path = shutil.which("vboxmanage")
 
         if vboxmanage_path is None:
             return ""
-        return vboxmanage_path
+        return os.path.abspath(vboxmanage_path)
 
     def _loadSettings(self):
         """
@@ -101,15 +106,11 @@ class VirtualBox(Module):
         LocalConfig.instance().saveSectionSettings(self.__class__.__name__, self._settings)
 
         # save some settings to the local server config file
-        server_settings = {
-            "vbox_user": self._settings["vbox_user"],
-        }
-
         if self._settings["vboxmanage_path"]:
-            server_settings["vboxmanage_path"] = os.path.normpath(self._settings["vboxmanage_path"])
-
-        config = LocalServerConfig.instance()
-        config.saveSettings(self.__class__.__name__, server_settings)
+            server_settings = {
+                "vboxmanage_path": os.path.normpath(self._settings["vboxmanage_path"])
+            }
+            LocalServerConfig.instance().saveSettings(self.__class__.__name__, server_settings)
 
     def _loadVirtualBoxVMs(self):
         """
@@ -127,8 +128,9 @@ class VirtualBox(Module):
                 vm_settings = VBOX_VM_SETTINGS.copy()
                 vm_settings.update(vm)
                 # for backward compatibility before version 1.4
-                vm_settings["symbol"] = vm_settings.get("default_symbol", vm_settings["symbol"])
-                vm_settings["symbol"] = vm_settings["symbol"][:-11] + ".svg" if vm_settings["symbol"].endswith("normal.svg") else vm_settings["symbol"]
+                if "symbol" not in vm_settings:
+                    vm_settings["symbol"] = vm_settings.get("default_symbol", vm_settings["symbol"])
+                    vm_settings["symbol"] = vm_settings["symbol"][:-11] + ".svg" if vm_settings["symbol"].endswith("normal.svg") else vm_settings["symbol"]
                 self._virtualbox_vms[key] = vm_settings
 
     def _saveVirtualBoxVMs(self):

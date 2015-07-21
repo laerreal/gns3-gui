@@ -38,7 +38,6 @@ from ..module import Module
 from ..module_error import ModuleError
 from .vpcs_device import VPCSDevice
 from .settings import VPCS_SETTINGS
-from ...settings import ENABLE_CLOUD
 
 import logging
 log = logging.getLogger(__name__)
@@ -67,25 +66,6 @@ class VPCS(Module):
         # load the settings
         self._loadSettings()
 
-    @staticmethod
-    def _findVPCS(self):
-        """
-        Finds the VPCS path.
-
-        :return: path to VPCS
-        """
-
-        if sys.platform.startswith("win") and hasattr(sys, "frozen"):
-            vpcs_path = os.path.join(os.getcwd(), "vpcs", "vpcs.exe")
-        elif sys.platform.startswith("darwin") and hasattr(sys, "frozen"):
-            vpcs_path = os.path.join(os.getcwd(), "vpcs")
-        else:
-            vpcs_path = shutil.which("vpcs")
-
-        if vpcs_path is None:
-            return ""
-        return vpcs_path
-
     def _loadSettings(self):
         """
         Loads the settings from the persistent settings file.
@@ -97,7 +77,11 @@ class VPCS(Module):
             self._settings["base_script_file"] = get_default_base_config(get_resource(os.path.join("configs", "vpcs_base_config.txt")))
 
         if not os.path.exists(self._settings["vpcs_path"]):
-            self._settings["vpcs_path"] = self._findVPCS(self)
+            vpcs_path = shutil.which("vpcs")
+            if vpcs_path:
+                self._settings["vpcs_path"] = os.path.abspath(vpcs_path)
+            else:
+                self._settings["vpcs_path"] = ""
 
     def _saveSettings(self):
         """
@@ -315,12 +299,10 @@ class VPCS(Module):
         in the nodes view and create a node on the scene.
         """
 
-        server = "local"
-        if not self._settings["use_local_server"]:
-            # pick up a remote server (round-robin method)
-            remote_server = next(iter(Servers.instance()))
-            if remote_server:
-                server = remote_server.url()
+        if self._settings["use_local_server"]:
+            server = "local"
+        else:
+            server = "vm"
 
         nodes = []
         for node_class in VPCS.classes():
@@ -331,14 +313,6 @@ class VPCS(Module):
                  "categories": [self._settings["category"]],
                  "symbol": self._settings["symbol"]}
             )
-            if ENABLE_CLOUD:
-                nodes.append(
-                    {"class": node_class.__name__,
-                     "name": node_class.symbolName() + " (cloud)",
-                     "server": "cloud",
-                     "categories": node_class.categories(),
-                     "symbol": self._settings["symbol"]}
-                )
         return nodes
 
     @staticmethod

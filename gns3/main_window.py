@@ -28,14 +28,12 @@ import json
 import glob
 import logging
 
-from pkg_resources import parse_version
 from .local_config import LocalConfig
 from .modules import MODULES
 from .modules.module_error import ModuleError
 from .modules.vpcs import VPCS
 from .modules.qemu.dialogs.qemu_image_wizard import QemuImageWizard
-from .version import __version__
-from .qt import QtGui, QtCore, QtNetwork, QtWidgets
+from .qt import QtGui, QtCore, QtWidgets, QtSvg
 from .servers import Servers
 from .gns3_vm import GNS3VM
 from .node import Node
@@ -44,7 +42,8 @@ from .dialogs.about_dialog import AboutDialog
 from .dialogs.new_project_dialog import NewProjectDialog
 from .dialogs.preferences_dialog import PreferencesDialog
 from .dialogs.snapshots_dialog import SnapshotsDialog
-from .settings import GENERAL_SETTINGS, CLOUD_SETTINGS, ENABLE_CLOUD
+from .dialogs.setup_wizard import SetupWizard
+from .settings import GENERAL_SETTINGS
 from .utils.progress_dialog import ProgressDialog
 from .utils.process_files_worker import ProcessFilesWorker
 from .utils.wait_for_connection_worker import WaitForConnectionWorker
@@ -57,15 +56,13 @@ from .items.shape_item import ShapeItem
 from .items.image_item import ImageItem
 from .items.note_item import NoteItem
 from .topology import Topology
-from .utils.download_project import DownloadProjectThread
-from .cloud.utils import UploadProjectThread, ssh_client, DeleteInstanceThread
-from .cloud.rackspace_ctrl import get_provider
-from .cloud.exceptions import KeyPairExists
+from .utils.download_project import DownloadProjectWorker
 from .project import Project
 from .http_client import HTTPClient
 from .progress import Progress
 from .licence import checkLicence
 from .image_manager import ImageManager
+from .update_manager import UpdateManager
 
 log = logging.getLogger(__name__)
 
@@ -96,14 +93,13 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self._project = None
         self._createTemporaryProject()
         self._project_from_cmdline = project
-        self._cloud_settings = {}
         self._loadSettings()
         self._connections()
         self._ignore_unsaved_state = False
         self._max_recent_files = 5
+        self._soft_exit = True
         self._recent_file_actions = []
         self._start_time = time.time()
-        self.loading_cloud_project = False
         local_config = LocalConfig.instance()
         local_config.config_changed_signal.connect(self._localConfigChangedSlot)
 
@@ -142,25 +138,14 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self._recent_file_actions_separator.setVisible(False)
         self._updateRecentFileActions()
 
-        self._cloud_provider = None
-
         # set the window icon
         self.setWindowIcon(QtGui.QIcon(":/images/gns3.ico"))
-
-        # Network Manager (used to check for update)
-        self._network_manager = QtNetwork.QNetworkAccessManager()
 
         # restore the style
         self._setStyle(self._settings.get("style"))
 
         # load initial stuff once the event loop isn't busy
         self.run_later(0, self.startupLoading)
-
-    @property
-    def cloudProvider(self):
-        if self._cloud_provider is None:
-            self._cloud_provider = get_provider(self.cloudSettings())
-        return self._cloud_provider
 
     def _loadSettings(self):
         """
@@ -169,7 +154,6 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
 
         local_config = LocalConfig.instance()
         self._settings = local_config.loadSectionSettings(self.__class__.__name__, GENERAL_SETTINGS)
-        self._cloud_settings = local_config.loadSectionSettings("Cloud", CLOUD_SETTINGS)
 
         # restore packet capture settings
         Port.loadPacketCaptureSettings()
@@ -182,15 +166,6 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         """
 
         return self._settings
-
-    def cloudSettings(self):
-        """
-        Returns the cloud settings.
-
-        :returns: cloud settings dictionary
-        """
-
-        return self._cloud_settings
 
     def setSettings(self, new_settings):
         """
@@ -209,17 +184,9 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         # save the settings
         LocalConfig.instance().saveSectionSettings(self.__class__.__name__, self._settings)
 
-    def setCloudSettings(self, new_settings, persist):
-        """
-        Set new cloud settings and store them only when the user asks for it
-
-        :param new_settings: cloud settings dictionary
-        :param persist: whether to persist settings on disk or not
-        """
-
-        self._cloud_settings.update(new_settings)
-        settings_to_persist = self._cloud_settings if persist else CLOUD_SETTINGS
-        LocalConfig.instance().saveSectionSettings("Cloud", settings_to_persist)
+    def setSoftExit(self, softExit):
+        """If True warn user before exiting app if unsaved data"""
+        self._soft_exit = softExit
 
     def _connections(self):
         """
@@ -231,8 +198,6 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.uiOpenProjectAction.triggered.connect(self.openProjectActionSlot)
         self.uiSaveProjectAction.triggered.connect(self._saveProjectActionSlot)
         self.uiSaveProjectAsAction.triggered.connect(self._saveProjectAsActionSlot)
-        self.uiExportProjectAction.triggered.connect(self._exportProjectActionSlot)
-        self.uiImportProjectAction.triggered.connect(self._importProjectActionSlot)
         self.uiDownloadRemoteProject.triggered.connect(self._downloadRemoteProjectActionSlot)
         self.uiImportExportConfigsAction.triggered.connect(self._importExportConfigsActionSlot)
         self.uiScreenshotAction.triggered.connect(self._screenshotActionSlot)
@@ -278,6 +243,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         # help menu connections
         self.uiOnlineHelpAction.triggered.connect(self._onlineHelpActionSlot)
         self.uiCheckForUpdateAction.triggered.connect(self._checkForUpdateActionSlot)
+        self.uiSetupWizard.triggered.connect(self._setupWizardActionSlot)
         self.uiGettingStartedAction.triggered.connect(self._gettingStartedActionSlot)
         self.uiLabInstructionsAction.triggered.connect(self._labInstructionsActionSlot)
         self.uiAboutQtAction.triggered.connect(self._aboutQtActionSlot)
@@ -295,7 +261,6 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.adding_link_signal.connect(self.uiGraphicsView.addingLinkSlot)
 
         # project
-        self._project.project_about_to_close_signal.connect(self.shutdown_cloud_instances)
         self.project_new_signal.connect(self.project_created)
 
     def project(self):
@@ -800,15 +765,15 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             return
 
         # supported image file formats
-        file_formats = "PNG File (*.png);;JPG File (*.jpeg *.jpg);;BMP File (*.bmp);;XPM File (*.xpm *.xbm);;PPM File (*.ppm);;TIFF File (*.tiff);;All files (*.*)"
+        file_formats = "Image files (*.svg *.bmp *.jpeg *.jpg *.pbm *.pgm *.png *.ppm *.xbm *.xpm);;All files (*.*)"
 
         path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Image", self._pictures_dir, file_formats)
         if not path:
             return
         self._pictures_dir = os.path.dirname(path)
 
-        pixmap = QtGui.QPixmap(path)
-        if pixmap.isNull():
+        image = QtGui.QPixmap(path)
+        if image.isNull():
             QtWidgets.QMessageBox.critical(self, "Image", "Image file format not supported")
             return
 
@@ -829,8 +794,13 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 QtWidgets.QMessageBox.critical(self, "Image", "Could not copy the image to the project image directory: {}".format(e))
                 return
 
+        renderer = QtSvg.QSvgRenderer(path)
+        if renderer.isValid():
+            # use a SVG image item if this is a valid SVG file
+            image = renderer
+
         # path to the image is relative to the project-files dir
-        self.uiGraphicsView.addImage(pixmap, os.path.join("images", image_filename))
+        self.uiGraphicsView.addImage(image, os.path.join("images", image_filename))
 
     def _drawRectangleActionSlot(self):
         """
@@ -860,41 +830,17 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         :param silent: do not display any message
         """
 
-        request = QtNetwork.QNetworkRequest(QtCore.QUrl("http://update.gns3.net/"))
-        request.setRawHeader("User-Agent", "GNS3 Check For Update")
-        request.setAttribute(QtNetwork.QNetworkRequest.User, silent)
-        reply = self._network_manager.get(request)
-        reply.finished.connect(self._checkForUpdateReplySlot)
+        self._update_manager = UpdateManager()
+        self._update_manager.checkForUpdate(self, silent)
 
-    def _checkForUpdateReplySlot(self):
+    def _setupWizardActionSlot(self):
         """
-        Process reply for check for update.
+        Slot to open the setup wizard.
         """
-
-        network_reply = self.sender()
-        is_silent = network_reply.request().attribute(QtNetwork.QNetworkRequest.User)
-
-        if network_reply.error() != QtNetwork.QNetworkReply.NoError and not is_silent:
-            QtWidgets.QMessageBox.critical(self, "Check For Update", "Cannot check for update: {}".format(network_reply.errorString()))
-        else:
-            try:
-                latest_release = bytes(network_reply.readAll()).decode("utf-8").rstrip()
-            except UnicodeDecodeError:
-                log.warning("Invalid answer from the update server")
-                return
-            if parse_version(__version__) < parse_version(latest_release):
-                reply = QtWidgets.QMessageBox.question(self,
-                                                       "Check For Update",
-                                                       "Newer GNS3 version {} is available, do you want to visit our website to download it?".format(latest_release),
-                                                       QtWidgets.QMessageBox.Yes,
-                                                       QtWidgets.QMessageBox.No)
-                if reply == QtWidgets.QMessageBox.Yes:
-                    QtGui.QDesktopServices.openUrl(QtCore.QUrl("http://www.gns3.net/download/"))
-            elif not is_silent:
-                QtWidgets.QMessageBox.information(self, "Check For Update", "GNS3 is up-to-date!")
-            return
-
-        network_reply.deleteLater()
+        with Progress.instance().context(min_duration=0):
+            setup_wizard = SetupWizard(self)
+            setup_wizard.show()
+            setup_wizard.exec_()
 
     def _gettingStartedActionSlot(self, auto=False):
         """
@@ -1063,7 +1009,8 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         servers = Servers.instance()
         if self._project.closed() and not servers.localServerIsRunning():
             event.accept()
-        elif self.checkForUnsavedChanges():
+            self.uiConsoleTextEdit.closeIO()
+        elif not self._soft_exit or self.checkForUnsavedChanges():
             self._project.project_closed_signal.connect(self._finish_application_closing)
             if servers.localServerIsRunning():
                 self._project.close(local_server_shutdown=True)
@@ -1074,6 +1021,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 log.debug("Disconnect all servers")
                 servers.disconnectAllServers()
                 event.accept()
+                self.uiConsoleTextEdit.closeIO()
             else:
                 event.ignore()
         else:
@@ -1096,10 +1044,6 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
 
         servers = Servers.instance()
         servers.stopLocalServer(wait=True)
-
-        # FIXME: shutting down cloud servers
-        # for cs in servers.cloud_servers.values():
-        #     cs.close_connection()
 
         time_spent = "{:.0f}".format(time.time() - self._start_time)
         log.debug("Time spend in the software is {}".format(time_spent))
@@ -1146,25 +1090,23 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         Called by QTimer.singleShot to load everything needed at startup.
         """
 
+        # restore debug level
+        if self._settings["debug_level"]:
+            root = logging.getLogger()
+            root.addHandler(logging.StreamHandler(sys.stdout))
+
         # restore the style
         self._setStyle(self._settings.get("style"))
 
-        servers = Servers.instance()
-        if GNS3VM.instance().autoStart():
-            servers.initVMServer()
-
-            # automatically start the GNS3 VM
-            worker = WaitForVMWorker()
-            progress_dialog = ProgressDialog(worker, "GNS3 VM", "Starting the GNS3 VM...", "Cancel", busy=True, parent=self)
-            progress_dialog.show()
-            progress_dialog.exec_()
-
+        # show the news dock widget
         if self._uiNewsDockWidget and not self._uiNewsDockWidget.isVisible():
             self.addDockWidget(QtCore.Qt.DockWidgetArea(QtCore.Qt.BottomDockWidgetArea), self._uiNewsDockWidget)
 
-        self._gettingStartedActionSlot(auto=True)
+        # FIXME: do something with getting started dialog
+        # self._gettingStartedActionSlot(auto=True)
 
-        # connect to the local server
+        # start and connect to the local server
+        servers = Servers.instance()
         server = servers.localServer()
         if servers.localServerAutoStart():
             if server.isLocalServerRunning():
@@ -1182,6 +1124,23 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 else:
                     QtWidgets.QMessageBox.critical(self, "Local server", "Could not start the local server process: {}".format(servers.localServerPath()))
                     return
+
+        # show the setup wizard
+        with Progress.instance().context(min_duration=0):
+            setup_wizard = SetupWizard(self)
+            if setup_wizard.showit() is True:
+                setup_wizard.show()
+                setup_wizard.exec_()
+
+        # start the GNS3 VM
+        gns3_vm = GNS3VM.instance()
+        if gns3_vm.autoStart() and not gns3_vm.isRunning():
+            servers.initVMServer()
+            worker = WaitForVMWorker()
+            progress_dialog = ProgressDialog(worker, "GNS3 VM", "Starting the GNS3 VM...", "Cancel", busy=True, parent=self)
+            progress_dialog.show()
+            if progress_dialog.exec_():
+                gns3_vm.adjustLocalServerIP()
 
         self._createTemporaryProject()
 
@@ -1338,7 +1297,8 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
 
         try:
             from gns3converter.main import do_conversion, get_snapshots, ConvertError
-        except ImportError:
+        except ImportError as e:
+            log.error("GNS3 converter is missing: {}".format(str(e)))
             QtWidgets.QMessageBox.critical(self, "GNS3 converter", "Please install gns3-converter in order to open old ini-style GNS3 projects")
             return
 
@@ -1395,14 +1355,6 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 return
 
             topology.loadFile(path, self._project)
-
-            # if we're opening a cloud project, defer topology load operations
-            # if json_topology["resources_type"] == "cloud":
-            #     self._project.setType("cloud")
-            #     self.loading_cloud_project = True
-            # else:
-            #     self._project.setType("local")
-            #     topology.load(json_topology)
 
         except OSError as e:
             QtWidgets.QMessageBox.critical(self, "Load", "Could not load project {}: {}".format(os.path.basename(path), e))
@@ -1530,22 +1482,6 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             MainWindow._instance = MainWindow()
         return MainWindow._instance
 
-    def shutdown_cloud_instances(self):
-        """
-        This slot is invoked before a project is closed, when:
-         * a new project is created
-         * a project from the recent menu is opened
-         * a project is opened from file
-         * program exits
-
-        """
-
-        if self._project.temporary():
-            # do nothing if previous project was temporary
-            return
-
-        CloudInstances.instance().save()
-
     def project_created(self, project):
         """
         This slot is invoked when a project is created or opened
@@ -1562,68 +1498,8 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 json_topology = json.load(f)
                 if not isinstance(json_topology, dict):
                     raise ValueError("Not a GNS3 project")
-
-                if json_topology["resources_type"] != 'cloud':
-                    # do nothing in case of local projects
-                    return
-
-                project_instances = json_topology["topology"]["instances"]
         except (OSError, ValueError) as e:
             QtWidgets.QMessageBox.critical(self, "Project", "Could not read project: {}".format(e))
-
-    def add_instance_to_project(self, instance, keypair):
-        """
-        Add an instance to the current project
-
-        :param instance: libcloud Node object
-        """
-        if instance is None:
-            log.error("Failed creating a new instance for current project")
-            return
-
-        default_image_id = self.cloudSettings()['default_image']
-
-        topology = Topology.instance()
-        topology.addInstance(instance.name, instance.id, instance.extra['flavorId'],
-                             default_image_id, keypair.private_key, keypair.public_key)
-
-        # persist infos saving current project
-        if not self.loading_cloud_project:
-            self.saveProject(self._project.topologyFile())
-
-    def remove_instance_from_project(self, instance):
-        """
-        Remove an instance from the current project
-
-        :param instance: libcloud Node object
-        """
-        topology = Topology.instance()
-        topology.removeInstance(instance.id)
-        # persist infos saving current project
-        self.saveProject(self._project.topologyFile())
-
-    def _create_instance(self, name, flavor, image_id):
-        """
-        Wrapper method to handle SSH keypairs creation before actually creating
-        an instance
-        """
-        # add -gns3 suffix to image names to minimize clashes on Rackspace accounts
-        if not name.endswith("-gns3"):
-            name += "-gns3"
-
-        log.debug("Creating cloud keypair with name {}".format(name))
-        try:
-            keypair = self.cloudProvider.create_key_pair(name)
-        except KeyPairExists:
-            log.debug("Cloud keypair with name {} exists.  Recreating.".format(name))
-            # delete keypairs if they already exist
-            self.cloudProvider.delete_key_pair_by_name(name)
-            keypair = self.cloudProvider.create_key_pair(name)
-
-        log.debug("Creating cloud server with name {}".format(name))
-        instance = self.cloudProvider.create_instance(name, flavor, image_id, keypair)
-        log.debug("Cloud server {} created".format(name))
-        return instance, keypair
 
     def run_later(self, counter, callback):
         """
@@ -1635,60 +1511,21 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
 
         QtCore.QTimer.singleShot(counter, callback)
 
-    def _exportProjectActionSlot(self):
-
-        if not ENABLE_CLOUD:
-            QtWidgets.QMessageBox.critical(self, "Cloud topology", "Sorry this feature is not yet available")
-            return
-
-        if self.isTemporaryProject():
-            # do nothing if project is temporary
-            QtWidgets.QMessageBox.critical(
-                self,
-                "Backup project",
-                "Cannot backup temporary projects, please save current project first."
-            )
-            return
-        if self.checkForUnsavedChanges():
-            self.saveProject(self._project.topologyFile())
-
-        upload_thread = UploadProjectThread(
-            self,
-            self._cloud_settings,
-            self._project.topologyFile(),
-            ImageManager.instance().getDirectory()
-        )
-        progress_dialog = ProgressDialog(upload_thread, "Backing Up Project", "Uploading project files...", "Cancel",
-                                         parent=self)
-        progress_dialog.show()
-        progress_dialog.exec_()
-
     def _downloadRemoteProjectActionSlot(self):
         if self._project.temporary():
-            QtWidgets.QMessageBox.warning(self, "Download project", "You can not download a temporary project")
+            QtWidgets.QMessageBox.warning(self, "Download project", "You cannot download a temporary project")
+            return
 
         running_nodes = self._running_nodes()
-
         if running_nodes:
             nodes = "\n".join(running_nodes)
             MessageBox(self, "Download project", "Please stop the following nodes before downloading the project", nodes)
             return
 
-        download_thread = DownloadProjectThread(self, self._project, Servers.instance())
-        progress_dialog = ProgressDialog(download_thread, "Download remote project", "Downloading project files...", "Cancel", parent=self)
+        download_worker = DownloadProjectWorker(self, self._project, Servers.instance())
+        progress_dialog = ProgressDialog(download_worker, "Download remote project", "Downloading project files...", "Cancel", parent=self)
         progress_dialog.show()
         progress_dialog.exec_()
-
-    def _importProjectActionSlot(self):
-        dialog = ImportCloudProjectDialog(
-            self,
-            self.projectsDirPath(),
-            ImageManager.instance().getDirectory(),
-            self._cloud_settings
-        )
-
-        dialog.show()
-        dialog.exec_()
 
     def _setStyle(self, style):
 

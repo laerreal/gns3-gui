@@ -377,6 +377,7 @@ class ServerPreferencesPage(QtWidgets.QWidget, Ui_ServerPreferencesPageWidget):
         self.uiVMPasswordLineEdit.setText(vm_settings["password"])
         self.uiEnableVMCheckBox.setChecked(vm_settings["auto_start"])
         self.uiShutdownCheckBox.setChecked(vm_settings["auto_stop"])
+        self.uiAdjustLocalServerIPCheckBox.setChecked(vm_settings["adjust_local_server_ip"])
         index = self.uiVMListComboBox.findText(vm_settings["vmname"])
         if index != -1:
             self.uiVMListComboBox.setCurrentIndex(index)
@@ -429,6 +430,9 @@ class ServerPreferencesPage(QtWidgets.QWidget, Ui_ServerPreferencesPageWidget):
         restart_local_server = False
         restart_gns3_vm = False
 
+
+
+
         # save the local server preferences
         new_local_server_settings = local_server_settings.copy()
         new_local_server_settings.update({"path": self.uiLocalServerPathLineEdit.text(),
@@ -451,6 +455,11 @@ class ServerPreferencesPage(QtWidgets.QWidget, Ui_ServerPreferencesPageWidget):
         if new_local_server_settings["udp_end_port_range"] <= new_local_server_settings["udp_start_port_range"]:
             QtWidgets.QMessageBox.critical(self, "Port range", "Invalid UDP port range from {} to {}".format(new_local_server_settings["udp_start_port_range"],
                                                                                                              new_local_server_settings["udp_end_port_range"]))
+            return
+
+        if 5900 <= new_local_server_settings["console_start_port_range"] <= 6000 or 5900 <= new_local_server_settings["console_end_port_range"] <= 6000 \
+                or new_local_server_settings["console_start_port_range"] < 5900 and new_local_server_settings["console_end_port_range"] > 6000:
+            QtWidgets.QMessageBox.critical(self, "Port range", "Console port range between 5900 and 6000 is reserved for VNC")
             return
 
         if new_local_server_settings["auto_start"]:
@@ -483,6 +492,7 @@ class ServerPreferencesPage(QtWidgets.QWidget, Ui_ServerPreferencesPageWidget):
         new_gns3vm_settings = servers_settings["vm"].copy()
         new_gns3vm_settings.update({"auto_start": self.uiEnableVMCheckBox.isChecked(),
                                     "auto_stop": self.uiShutdownCheckBox.isChecked(),
+                                    "adjust_local_server_ip": self.uiAdjustLocalServerIPCheckBox.isChecked(),
                                     "vmname": self.uiVMListComboBox.currentText(),
                                     "vmx_path": self.uiVMListComboBox.currentData(),
                                     "headless": self.uiHeadlessCheckBox.isChecked(),
@@ -510,6 +520,24 @@ class ServerPreferencesPage(QtWidgets.QWidget, Ui_ServerPreferencesPageWidget):
         servers.updateRemoteServers(self._remote_servers)
         servers.save()
 
+        # start or restart the GNS3 VM if required
+        if restart_gns3_vm:
+            gns3_vm = GNS3VM.instance()
+            gns3_vm.shutdown(force=True)
+            if gns3_vm.autoStart():
+                servers.initVMServer()
+                worker = WaitForVMWorker()
+                progress_dialog = ProgressDialog(worker, "GNS3 VM", "Starting the GNS3 VM...", "Cancel", busy=True, parent=self)
+                progress_dialog.show()
+                if progress_dialog.exec_():
+                    local_server_ip = gns3_vm.adjustLocalServerIP()
+                    if local_server_ip != new_local_server_settings["host"]:
+                        new_local_server_settings["host"] = local_server_ip
+                        index = self.uiLocalServerHostComboBox.findData(local_server_ip)
+                        if index != -1:
+                            restart_local_server = True
+                            self.uiLocalServerHostComboBox.setCurrentIndex(index)
+
         # start or restart the local server if required
         if restart_local_server:
             servers.stopLocalServer(wait=True)
@@ -520,14 +548,3 @@ class ServerPreferencesPage(QtWidgets.QWidget, Ui_ServerPreferencesPageWidget):
                 dialog.exec_()
             else:
                 QtWidgets.QMessageBox.critical(self, "Local server", "Could not start the local server process: {}".format(new_local_server_settings["path"]))
-
-        # start or restart the GNS3 VM if required
-        if restart_gns3_vm:
-            gns3_vm = GNS3VM.instance()
-            gns3_vm.shutdown(force=True)
-            if gns3_vm.autoStart():
-                servers.initVMServer()
-                worker = WaitForVMWorker()
-                progress_dialog = ProgressDialog(worker, "GNS3 VM", "Starting the GNS3 VM...", "Cancel", busy=True, parent=self)
-                progress_dialog.show()
-                progress_dialog.exec_()

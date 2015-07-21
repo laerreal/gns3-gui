@@ -29,8 +29,9 @@ import string
 import random
 import socket
 import subprocess
+import binascii
 
-from .qt import QtCore, QtNetwork, QtWidgets
+from .qt import QtNetwork, QtWidgets
 from .network_client import getNetworkClientInstance, getNetworkUrl
 from .local_config import LocalConfig
 from .settings import SERVERS_SETTINGS
@@ -58,7 +59,7 @@ class Servers():
         self._local_server_path = ""
         self._local_server_auto_start = True
         self._local_server_allow_console_from_anywhere = False
-        self._local_server_proccess = None
+        self._local_server_process = None
         self._network_manager = QtNetwork.QNetworkAccessManager()
         self._network_manager.sslErrors.connect(self._handleSslErrors)
         self._remote_server_iter_pos = 0
@@ -88,16 +89,11 @@ class Servers():
         :return: path to the local server
         """
 
-        if sys.platform.startswith("win") and hasattr(sys, "frozen"):
-            local_server_path = os.path.join(os.getcwd(), "gns3server.exe")
-        elif sys.platform.startswith("darwin") and hasattr(sys, "frozen"):
-            local_server_path = os.path.join(os.getcwd(), "gns3server")
-        else:
-            local_server_path = shutil.which("gns3server")
+        local_server_path = shutil.which("gns3server")
 
         if local_server_path is None:
             return ""
-        return local_server_path
+        return os.path.abspath(local_server_path)
 
     @staticmethod
     def _findUbridge(self):
@@ -107,16 +103,11 @@ class Servers():
         :return: path to the ubridge
         """
 
-        if sys.platform.startswith("win") and hasattr(sys, "frozen"):
-            ubridge_path = os.path.join(os.getcwd(), "ubridge.exe")
-        elif sys.platform.startswith("darwin") and hasattr(sys, "frozen"):
-            ubridge_path = os.path.join(os.getcwd(), "ubridge")
-        else:
-            ubridge_path = shutil.which("ubridge")
+        ubridge_path = shutil.which("ubridge")
 
         if ubridge_path is None:
             return ""
-        return ubridge_path
+        return os.path.abspath(ubridge_path)
 
     def _handleSslErrors(self, reply, errorList):
         """
@@ -124,7 +115,8 @@ class Servers():
         """
 
         server = self.getServerFromString(reply.url().toDisplayString())
-        if server.acceptInsecureCertificate():
+        certificate = binascii.hexlify(errorList[0].certificate().digest()).decode('utf-8')
+        if server.acceptInsecureCertificate() == certificate:
             reply.ignoreSslErrors()
             return
 
@@ -139,7 +131,7 @@ class Servers():
                 QtWidgets.QMessageBox.No)
 
             if proceed == QtWidgets.QMessageBox.Yes:
-                server.setAcceptInsecureCertificate(True)
+                server.setAcceptInsecureCertificate(certificate)
                 self._saveSettings()
                 reply.ignoreSslErrors()
                 log.info("SSL error ignored for %s", reply.url().toDisplayString())
@@ -164,11 +156,6 @@ class Servers():
         if not os.path.exists(local_server_settings["ubridge_path"]):
             local_server_settings["ubridge_path"] = self._findUbridge(self)
 
-        if "user" not in local_server_settings or len(local_server_settings["user"]) == 0:
-            local_server_settings["user"] = self._passwordGenerate()
-            local_server_settings["password"] = self._passwordGenerate()
-            self._saveSettings()
-
         for remote_server in self._settings["remote_servers"]:
             self._addRemoteServer(remote_server.get("protocol", "http"),
                                   remote_server["host"],
@@ -178,6 +165,12 @@ class Servers():
                                   ssh_key=remote_server.get("ssh_key", None),
                                   ssh_port=remote_server.get("ssh_port", None),
                                   accept_insecure_certificate=remote_server.get("accept_insecure_certificate", False))
+
+        if "user" not in local_server_settings or len(local_server_settings["user"]) == 0:
+            local_server_settings["user"] = self._passwordGenerate()
+            local_server_settings["password"] = self._passwordGenerate()
+            #WARNING: This operation should be a the end of the method otherwise you save a partial config
+            self._saveSettings()
 
     def _saveSettings(self):
         """
@@ -320,7 +313,7 @@ class Servers():
                     sock.bind(sa)
                     break
         except OSError as e:
-            QtWidgets.QMessageBox.critical(main_window, "Local server", "Could not bind with {}: {} (please check your host binding setting in the preferences)".format(server.host, e))
+            QtWidgets.QMessageBox.critical(main_window, "Local server", "Could not bind with {}: {} (please check your host binding setting in the preferences)".format(server.host(), e))
             return False
 
         try:
@@ -333,7 +326,7 @@ class Servers():
                     sock.bind(sa)
                     break
         except OSError as e:
-            log.warning("Could not use socket {}:{} {}".format(server.host, server.port, e))
+            log.warning("Could not use socket {}:{} {}".format(server.host(), server.port(), e))
             find_unused_port = True
 
         if find_unused_port:
@@ -380,7 +373,7 @@ class Servers():
         if logging.getLogger().isEnabledFor(logging.DEBUG):
             command += " --debug"
 
-        settings_dir = os.path.normpath(os.path.dirname(QtCore.QSettings().fileName()))
+        settings_dir = LocalConfig.configDirectory()
         if os.path.isdir(settings_dir):
             # save server logging info to a file in the settings directory
             logpath = os.path.join(settings_dir, "gns3_server.log")
@@ -398,16 +391,16 @@ class Servers():
         try:
             if sys.platform.startswith("win"):
                 # use the string on Windows
-                self._local_server_proccess = subprocess.Popen(command, creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
+                self._local_server_process = subprocess.Popen(command, creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
             else:
                 # use arguments on other platforms
                 args = shlex.split(command)
-                self._local_server_proccess = subprocess.Popen(args)
+                self._local_server_process = subprocess.Popen(args)
         except (OSError, subprocess.SubprocessError) as e:
             log.warning('Could not start local server "{}": {}'.format(command, e))
             return False
 
-        log.info("Local server process has started (PID={})".format(self._local_server_proccess.pid))
+        log.info("Local server process has started (PID={})".format(self._local_server_process.pid))
         return True
 
     def localServerIsRunning(self):
@@ -417,7 +410,7 @@ class Servers():
         :returns: boolean
         """
 
-        if self._local_server_proccess and self._local_server_proccess.poll() is None:
+        if self._local_server_process and self._local_server_process.poll() is None:
             return True
         return False
 
@@ -429,26 +422,26 @@ class Servers():
         """
 
         if self.localServerIsRunning():
-            log.info("Stopping local server (PID={})".format(self._local_server_proccess.pid))
+            log.info("Stopping local server (PID={})".format(self._local_server_process.pid))
             # local server is running, let's stop it
             if wait:
                 try:
                     # wait for the server to stop for maximum 2 seconds
-                    self._local_server_proccess.wait(timeout=2)
+                    self._local_server_process.wait(timeout=2)
                 except subprocess.TimeoutExpired:
                     # the local server couldn't be stopped with the normal procedure
                     if sys.platform.startswith("win"):
                         try:
-                            self._local_server_proccess.send_signal(signal.CTRL_BREAK_EVENT)
+                            self._local_server_process.send_signal(signal.CTRL_BREAK_EVENT)
                         # If the process is already dead we received a permission error
                         # it's a race condition between the timeout and send signal
                         except PermissionError:
                             pass
                     else:
-                        self._local_server_proccess.send_signal(signal.SIGINT)
+                        self._local_server_process.send_signal(signal.SIGINT)
                     try:
                         # wait for the server to stop for maximum 2 seconds
-                        self._local_server_proccess.wait(timeout=2)
+                        self._local_server_process.wait(timeout=2)
                     except subprocess.TimeoutExpired:
                         from .main_window import MainWindow
                         main_window = MainWindow.instance()
@@ -459,7 +452,7 @@ class Servers():
                                                                  QtWidgets.QMessageBox.No)
 
                         if proceed == QtWidgets.QMessageBox.Yes:
-                            self._local_server_proccess.kill()
+                            self._local_server_process.kill()
 
     def localServer(self):
         """
@@ -477,7 +470,7 @@ class Servers():
 
         gns3_vm_settings = self._settings["vm"]
         server_info = {
-            "host": gns3_vm_settings["server_host"],
+            "host": "unset",
             "port": gns3_vm_settings["server_port"],
             "protocol": "http",
             "user": gns3_vm_settings["user"],
@@ -548,7 +541,8 @@ class Servers():
             if server.url() == url:
                 return server
 
-        return self._addRemoteServer(protocol, host, port, user=user, **settings)
+        settings['user'] = user
+        return self._addRemoteServer(protocol, host, port, **settings)
 
     def getServerFromString(self, server_name):
         """
@@ -673,7 +667,7 @@ class Servers():
 
         if self._local_server.connected():
             self._local_server.close()
-        for server in self._remote_servers:
+        for server in self._remote_servers.values():
             if server.connected():
                 server.close()
 

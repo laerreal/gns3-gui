@@ -20,6 +20,8 @@ import os
 import json
 import shutil
 import copy
+from pkg_resources import parse_version
+
 
 from .qt import QtCore
 from .version import __version__
@@ -28,25 +30,45 @@ import logging
 log = logging.getLogger(__name__)
 
 
-class LocalConfig(QtCore.QObject):
+class PeriodicCheckConfig(QtCore.QThread):
 
-    config_changed_signal = QtCore.Signal()
+    """
+    Timer for checking if the configuration file change
+    on disk.
+    """
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self._parent = parent
+
+    def run(self):
+        self._timer = QtCore.QTimer()
+        self._timer.timeout.connect(self._parent._checkConfigChanged)
+        self._timer.setInterval(1000)  #  milliseconds
+        self._timer.start()
+        self.exec_()
+
+
+class LocalConfig(QtCore.QObject):
 
     """
     Handles the local GUI settings.
     """
 
-    def __init__(self):
+    config_changed_signal = QtCore.Signal()
+
+    def __init__(self, config_file=None):
 
         super().__init__()
         self._settings = {}
+        self._last_config_changed = None
 
         if sys.platform.startswith("win"):
             filename = "gns3_gui.ini"
         else:
             filename = "gns3_gui.conf"
 
-        self._migrateOldConfig()
+        self._migrateOldConfigPath()
 
         appname = "GNS3"
 
@@ -55,19 +77,14 @@ class LocalConfig(QtCore.QObject):
             # On windows, the system wide configuration file location is %COMMON_APPDATA%/GNS3/gns3_gui.conf
             common_appdata = os.path.expandvars("%COMMON_APPDATA%")
             system_wide_config_file = os.path.join(common_appdata, appname, filename)
-
-            # On windows, the user specific configuration file location is %APPDATA%/GNS3/gns3_gui.conf
-            appdata = os.path.expandvars("%APPDATA%")
-            self._config_file = os.path.join(appdata, appname, filename)
-
         else:
-
             # On UNIX-like platforms, the system wide configuration file location is /etc/xdg/GNS3/gns3_gui.conf
             system_wide_config_file = os.path.join("/etc/xdg", appname, filename)
 
-            # On UNIX-like platforms, the user specific configuration file location is /etc/xdg/GNS3/gns3_gui.conf
-            home = os.path.expanduser("~")
-            self._config_file = os.path.join(home, ".config", appname, filename)
+        if config_file:
+            self._config_file = config_file
+        else:
+            self._config_file = os.path.join(LocalConfig.configDirectory(), filename)
 
         # First load system wide settings
         if os.path.exists(system_wide_config_file):
@@ -89,16 +106,28 @@ class LocalConfig(QtCore.QObject):
         user_settings = self._readConfig(self._config_file)
         # overwrite system wide settings with user specific ones
         self._settings.update(user_settings)
+        self._migrateOldConfig()
         self._writeConfig()
 
-        timer = QtCore.QTimer(self)
-        timer.timeout.connect(self._checkConfigChanged)
-        timer.setInterval(1000)  #  milliseconds
-        timer.start()
+        self._check_thread = PeriodicCheckConfig(self)
+        self._check_thread.start()
 
-    def _migrateOldConfig(self):
+    @staticmethod
+    def configDirectory():
         """
-        Migrate pre 1.4 config
+        Get the configuration directory
+        """
+        if sys.platform.startswith("win"):
+            appdata = os.path.expandvars("%APPDATA%")
+            path = os.path.join(appdata, "GNS3")
+        else:
+            home = os.path.expanduser("~")
+            path = os.path.join(home, ".config", "GNS3")
+        return os.path.normpath(path)
+
+    def _migrateOldConfigPath(self):
+        """
+        Migrate pre 1.4 config path
         """
 
         # In < 1.4 on Mac the config was in a gns3.net directory
@@ -109,13 +138,40 @@ class LocalConfig(QtCore.QObject):
             if os.path.exists(old_path) and not os.path.exists(new_path):
                 try:
                     shutil.copytree(old_path, new_path)
-                except OSError:
-                    pass
+                except OSError as e:
+                    print("Can't copy the old config: %s", str(e))
+
+    def _migrateOldConfig(self):
+        """
+        Migrate pre 1.4 config
+        """
+
+        if "version" not in self._settings or parse_version(self._settings["version"]) < parse_version("1.4.0"):
+
+            servers = self._settings.get("Servers", {})
+
+            if "LocalServer" in self._settings:
+                servers["local_server"] = copy.copy(self._settings["LocalServer"])
+
+                # We migrate the server binary for OSX due to the change from py2app to CX freeze
+                if servers["local_server"]["path"] == "/Applications/GNS3.app/Contents/Resources/server/Contents/MacOS/gns3server":
+                    servers["local_server"]["path"] = "/Applications/GNS3.app/Contents/MacOS/gns3server"
+
+            if "RemoteServers" in self._settings:
+                servers["remote_servers"] = copy.copy(self._settings["RemoteServers"])
+
+            self._settings["Servers"] = servers
+
+            if "GUI" in self._settings:
+                main_window = self._settings.get("MainWindow", {})
+                main_window["hide_getting_started_dialog"] = self._settings["GUI"].get("hide_getting_started_dialog", False)
+                self._settings["MainWindow"] = main_window
 
     def _readConfig(self, config_path):
         """
         Read the configuration file.
         """
+        log.info("Load config from %s", config_path)
         try:
             with open(config_path, "r", encoding="utf-8") as f:
                 self._last_config_changed = os.stat(config_path).st_mtime
@@ -148,7 +204,7 @@ class LocalConfig(QtCore.QObject):
             log.error("Could not write the config file {}: {}".format(self._config_file, e))
 
     def _checkConfigChanged(self):
-        if self._last_config_changed < os.stat(self._config_file).st_mtime:
+        if self._last_config_changed and self._last_config_changed < os.stat(self._config_file).st_mtime:
             log.info("Client config has changed, reloading it...")
             self._readConfig(self._config_file)
             self.config_changed_signal.emit()
@@ -219,9 +275,7 @@ class LocalConfig(QtCore.QObject):
 
         settings = _copySettings(settings, default_settings)
 
-        if section not in self._settings:
-            self._settings[section] = {}
-        self._settings[section].update(settings)
+        self._settings[section] = settings
         return copy.deepcopy(settings)
 
     def saveSectionSettings(self, section, settings):
@@ -243,7 +297,7 @@ class LocalConfig(QtCore.QObject):
             log.debug("Section %s has not changed. Skip saving configuration", section)
 
     @staticmethod
-    def instance():
+    def instance(config_file=None):
         """
         Singleton to return only on instance of LocalConfig.
 
@@ -251,5 +305,5 @@ class LocalConfig(QtCore.QObject):
         """
 
         if not hasattr(LocalConfig, "_instance") or LocalConfig._instance is None:
-            LocalConfig._instance = LocalConfig()
+            LocalConfig._instance = LocalConfig(config_file=config_file)
         return LocalConfig._instance

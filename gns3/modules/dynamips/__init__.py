@@ -19,13 +19,14 @@
 Dynamips module implementation.
 """
 
-import sys
 import os
 import shutil
+import hashlib
 
 from gns3.qt import QtWidgets
 from gns3.servers import Servers
 from gns3.local_config import LocalConfig
+from gns3.image_manager import ImageManager
 from gns3.local_server_config import LocalServerConfig
 from gns3.gns3_vm import GNS3VM
 
@@ -47,6 +48,7 @@ from .nodes.atm_switch import ATMSwitch
 from .settings import DYNAMIPS_SETTINGS
 from .settings import IOS_ROUTER_SETTINGS
 from .settings import PLATFORMS_DEFAULT_RAM
+from .settings import DEFAULT_IDLEPC
 
 PLATFORM_TO_CLASS = {
     "c1700": C1700,
@@ -83,23 +85,34 @@ class Dynamips(Module):
         self._loadSettings()
 
     @staticmethod
-    def _findDynamips():
+    def getDefaultIdlePC(path):
         """
-        Finds the Dynamips path.
-
-        :return: path to Dynamips
+        Return the default IDLE PC for an image if the image
+        exists or None otherwise
         """
+        if not os.path.isfile(path):
+            path = os.path.join(ImageManager.instance().getDirectoryForType("DYNAMIPS"), path)
+            if not os.path.isfile(path):
+                return None
+        try:
+            md5sum = Dynamips._md5sum(path)
+            log.debug("Get idlePC for %s. md5sum %s", path, md5sum)
+            if md5sum in DEFAULT_IDLEPC:
+                log.debug("IDLEPC found for %s", path)
+                return DEFAULT_IDLEPC[md5sum]
+        except OSError:
+            return None
 
-        if sys.platform.startswith("win") and hasattr(sys, "frozen"):
-            dynamips_path = os.path.join(os.getcwd(), "dynamips", "dynamips.exe")
-        elif sys.platform.startswith("darwin") and hasattr(sys, "frozen"):
-            dynamips_path = os.path.join(os.getcwd(), "dynamips")
-        else:
-            dynamips_path = shutil.which("dynamips")
-
-        if dynamips_path is None:
-            return ""
-        return dynamips_path
+    @staticmethod
+    def _md5sum(path):
+        with open(path, "rb") as fd:
+            m = hashlib.md5()
+            while True:
+                data = fd.read(8192)
+                if not data:
+                    break
+                m.update(data)
+            return m.hexdigest()
 
     def _loadSettings(self):
         """
@@ -108,7 +121,11 @@ class Dynamips(Module):
 
         self._settings = LocalConfig.instance().loadSectionSettings(self.__class__.__name__, DYNAMIPS_SETTINGS)
         if not os.path.exists(self._settings["dynamips_path"]):
-            self._settings["dynamips_path"] = self._findDynamips()
+            dynamips_path = shutil.which("dynamips")
+            if dynamips_path:
+                self._settings["dynamips_path"] = os.path.abspath(dynamips_path)
+            else:
+                self._settings["dynamips_path"] = ""
 
         self._loadIOSRouters()
 
@@ -150,8 +167,9 @@ class Dynamips(Module):
                 router_settings = IOS_ROUTER_SETTINGS.copy()
                 router_settings.update(router)
                 # for backward compatibility before version 1.4
-                router_settings["symbol"] = router_settings.get("default_symbol", router_settings["symbol"])
-                router_settings["symbol"] = router_settings["symbol"][:-11] + ".svg" if router_settings["symbol"].endswith("normal.svg") else router_settings["symbol"]
+                if "symbol" not in router_settings:
+                    router_settings["symbol"] = router_settings["default_symbol"]
+                    router_settings["symbol"] = router_settings["symbol"][:-11] + ".svg" if router_settings["symbol"].endswith("normal.svg") else router_settings["symbol"]
                 self._ios_routers[key] = router_settings
 
     def _saveIOSRouters(self):
@@ -366,7 +384,9 @@ class Dynamips(Module):
                 return alternative_image
 
         # no registered IOS image is used, let's just ask for an IOS image path
-        QtWidgets.QMessageBox.critical(mainwindow, "IOS image", "Could not find the {} IOS image \nPlease select a similar IOS image!".format(image))
+        msg = "Could not find the {} IOS image \nPlease select a similar IOS image!".format(image)
+        log.error(msg)
+        QtWidgets.QMessageBox.critical(mainwindow, "IOS image", msg)
         from .pages.ios_router_preferences_page import IOSRouterPreferencesPage
         image_path = IOSRouterPreferencesPage.getIOSImage(mainwindow, None)
         if image_path:

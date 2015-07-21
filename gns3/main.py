@@ -16,6 +16,19 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+import sys
+import os
+
+# Try to install updates & restart application if an update is installed
+try:
+    import gns3.update_manager
+    if gns3.update_manager.UpdateManager().installDownloadedUpdates():
+        print("Update installed restart the application")
+        python = sys.executable
+        os.execl(python, python, * sys.argv)
+except Exception as e:
+    print("Fail update installation: {}".format(str(e)))
+
 
 # WARNING
 # Due to buggy user machines we choose to put this as the first loading modules
@@ -27,8 +40,6 @@ from gns3.utils.get_resource import get_resource
 
 
 import datetime
-import sys
-import os
 import traceback
 import time
 import locale
@@ -43,7 +54,7 @@ from gns3.main_window import MainWindow
 
 from gns3.logger import init_logger
 from gns3.crash_report import CrashReport
-
+from gns3.local_config import LocalConfig
 
 import logging
 log = logging.getLogger(__name__)
@@ -96,15 +107,44 @@ def main():
     Entry point for GNS3 GUI.
     """
 
+    # Sometimes (for example at first launch) the OSX app service launcher add
+    # an extra argument starting with -psn_. We filter it
+    if sys.platform.startswith("darwin"):
+        sys.argv = [a for a in sys.argv if not a.startswith("-psn_")]
+
     parser = argparse.ArgumentParser()
     parser.add_argument("project", help="load a GNS3 project (.gns3)", metavar="path", nargs="?")
     parser.add_argument("--version", help="show the version", action="version", version=__version__)
     parser.add_argument("--debug", help="print out debug messages", action="store_true", default=False)
+    parser.add_argument("--config", help="Configuration file")
     options = parser.parse_args()
     exception_file_path = "exceptions.log"
 
-    if options.project and hasattr(sys, "frozen"):
-        os.chdir(os.path.dirname(os.path.abspath(sys.executable)))
+    if options.config:
+        LocalConfig.instance(config_file=options.config)
+    else:
+        LocalConfig.instance()
+
+    if hasattr(sys, "frozen"):
+        # We add to the path where the OS search executable our binary location starting by GNS3
+        # packaged binary
+        frozen_dir = os.path.dirname(os.path.abspath(sys.executable))
+        if sys.platform.startswith("darwin"):
+            frozen_dirs = [
+                frozen_dir,
+                os.path.normpath(os.path.join(frozen_dir, '..', 'Resources'))
+            ]
+        elif sys.platform.startswith("win"):
+            frozen_dirs = [
+                frozen_dir,
+                os.path.normpath(os.path.join(frozen_dir, 'dynamips')),
+                os.path.normpath(os.path.join(frozen_dir, 'vpcs'))
+            ]
+
+        os.environ["PATH"] = os.pathsep.join(frozen_dirs) + os.pathsep + os.environ.get("PATH", "")
+
+        if options.project:
+            os.chdir(frozen_dir)
 
     def exceptionHook(exception, value, tb):
 
@@ -197,7 +237,7 @@ def main():
     app.setApplicationVersion(__version__)
 
     # save client logging info to a file
-    logfile = os.path.normpath(os.path.join(os.path.dirname(QtCore.QSettings().fileName()), "gns3_gui.log"))
+    logfile = os.path.join(LocalConfig.configDirectory(), "gns3_gui.log")
 
     # on debug enable logging to stdout
     if options.debug:
@@ -206,20 +246,28 @@ def main():
         root_logger = init_logger(logging.INFO, logfile)
 
     # update the exception file path to have it in the same directory as the settings file.
-    exception_file_path = os.path.normpath(os.path.join(os.path.dirname(QtCore.QSettings().fileName()), exception_file_path))
+    exception_file_path = os.path.join(LocalConfig.configDirectory(), exception_file_path)
+
+    mainwindow = MainWindow(options.project)
 
     # Manage Ctrl + C or kill command
     def sigint_handler(*args):
         log.info("Signal received exiting the application")
+        mainwindow.setSoftExit(False)
         app.closeAllWindows()
     signal.signal(signal.SIGINT, sigint_handler)
     signal.signal(signal.SIGTERM, sigint_handler)
 
-    mainwindow = MainWindow(options.project)
     mainwindow.show()
     exit_code = app.exec_()
     delattr(MainWindow, "_instance")
     app.deleteLater()
+
+    # We force a full garbage collect before exit
+    # for unknow reason otherwise Qt Segfault on OSX in some
+    # conditions
+    import gc
+    gc.collect()
 
     sys.exit(exit_code)
 

@@ -41,7 +41,7 @@ class VMwareVMWizard(QtWidgets.QWizard, Ui_VMwareVMWizard):
 
         super().__init__(parent)
         self.setupUi(self)
-        self.setPixmap(QtWidgets.QWizard.LogoPixmap, QtGui.QPixmap(":/icons/virtualbox.png"))  # FIXME: create icon for VMware
+        self.setPixmap(QtWidgets.QWizard.LogoPixmap, QtGui.QPixmap(":/symbols/vmware_guest.svg"))
         self.setWizardStyle(QtWidgets.QWizard.ModernStyle)
         if sys.platform.startswith("darwin"):
             # we want to see the cancel button on OSX
@@ -91,12 +91,13 @@ class VMwareVMWizard(QtWidgets.QWizard, Ui_VMwareVMWizard):
         Validates the server.
         """
 
-        if self.currentPage() == self.uiServerWizardPage:
-
-            # FIXME: prevent users to use "cloud"
-            if self.uiCloudRadioButton.isChecked():
-                QtWidgets.QMessageBox.critical(self, "Cloud", "Sorry not implemented yet!")
+        # Fusion is not yet supported
+        if sys.platform.startswith("darwin"):
+            if VMware.instance().settings()["use_local_server"] or self.uiLocalRadioButton.isChecked():
+                QtWidgets.QMessageBox.critical(self, "VMware VMs", "Sorry, VMware Fusion is not supported yet")
                 return False
+
+        if self.currentPage() == self.uiServerWizardPage:
 
             if VMware.instance().settings()["use_local_server"] or self.uiLocalRadioButton.isChecked():
                 server = Servers.instance().localServer()

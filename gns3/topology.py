@@ -30,14 +30,14 @@ import sys
 from .qt import QtGui, QtSvg, QtWidgets
 from functools import partial
 from .items.node_item import NodeItem
-from .items.svg_node_item import SvgNodeItem
 from .items.pixmap_node_item import PixmapNodeItem
 from .items.svg_node_item import SvgNodeItem
 from .items.link_item import LinkItem
 from .items.note_item import NoteItem
 from .items.rectangle_item import RectangleItem
 from .items.ellipse_item import EllipseItem
-from .items.image_item import ImageItem
+from .items.svg_image_item import SvgImageItem
+from .items.pixmap_image_item import PixmapImageItem
 from .servers import Servers
 from .modules import MODULES
 from .modules.module_error import ModuleError
@@ -545,6 +545,7 @@ class Topology:
 
         errors = getTopologyValidationErrors(topology)
         if errors:
+            log.error(errors)
             print(errors)
             print(VALIDATION_ERROR_MESSAGE)
             if hasattr(sys, '_called_from_test'):
@@ -593,6 +594,7 @@ class Topology:
 
         errors = getTopologyValidationErrors(json_topology)
         if errors:
+            log.error(errors)
             print(errors)
             print(VALIDATION_ERROR_MESSAGE)
             if hasattr(sys, '_called_from_test'):
@@ -664,6 +666,8 @@ class Topology:
                     host = topology_server["host"]
                     port = topology_server["port"]
                     user = topology_server.get("user", None)
+                    if "cloud" in topology_server:
+                        del topology_server["cloud"]
                     self._servers[topology_server["id"]] = server_manager.getRemoteServer(protocol, host, port, user, topology_server)
 
         # nodes
@@ -807,6 +811,7 @@ class Topology:
             errors = "\n".join(topology_file_errors)
             MessageBox(main_window, "Topology", "Errors detected while importing the topology", errors)
         log.debug("Finish loading topology")
+        self._autoStart(topology)
 
     def _load_images(self, topology):
 
@@ -835,7 +840,12 @@ class Topology:
                     topology_file_errors.append("Image format not supported for {}".format(image_path))
                     continue
 
-                image_item = ImageItem(pixmap, image_path)
+                renderer = QtSvg.QSvgRenderer(image_path)
+                if renderer.isValid():
+                    # use a SVG image item if this is a valid SVG file
+                    image_item = SvgImageItem(renderer, image_path)
+                else:
+                    image_item = PixmapImageItem(pixmap, image_path)
                 image_item.load(topology_image)
                 view.scene().addItem(image_item)
                 self.addImage(image_item)
@@ -920,7 +930,8 @@ class Topology:
         """
         If everything is created auto start the topology
         """
-        if (len(topology["topology"].get("links", [])) == len(self._initialized_links)) and (len(topology["topology"]["nodes"]) == len(self._initialized_nodes)):
+        if "nodes" not in topology or ((len(topology["topology"].get("links", [])) == len(self._initialized_links)) and (len(topology["topology"]["nodes"]) == len(self._initialized_nodes))):
+            log.info("Topology initialized")
             # Auto start
             if self._auto_start:
                 log.info("Auto start nodes")

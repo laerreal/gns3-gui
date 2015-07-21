@@ -51,7 +51,15 @@
                 "y": {"type": "number" },
                 "z": { "type": "number" },
                 "color": { "$ref": "#/definitions/color" },
-                "border_color": { "$ref": "#/definitions/color" }
+                "border_width": { "type": "number" },
+                "border_color": { "$ref": "#/definitions/color" },
+                "border_style": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 6
+                },
+                "border_transparency": {"type": "integer" },
+                "transparency": {"type": "integer" }
             },
             "required": [
                 "height",
@@ -70,16 +78,18 @@
                     "minimum": 0,
                     "maximum": 6
                 },
+                "border_width": { "type": "number" },
                 "height": { "type": "number" },
                 "width": {"type": "number" },
                 "x": { "type": "number" },
                 "y": {"type": "number" },
                 "z": { "type": "number" },
                 "color": { "$ref": "#/definitions/color" },
-                "border_color": { "$ref": "#/definitions/color" }
+                "border_color": { "$ref": "#/definitions/color" },
+                "border_transparency": {"type": "integer" },
+                "transparency": {"type": "integer" }
             },
             "required": [
-                "border_style",
                 "height",
                 "width",
                 "x",
@@ -116,8 +126,6 @@
                 "rotation": {"type": "number" }
             },
             "required": [
-                "color",
-                "font",
                 "text",
                 "x",
                 "y"
@@ -153,7 +161,7 @@
                 },
                 "stub": { "type": "boolean" },
                 "type": {
-                    "enum": ["access"]
+                    "enum": ["access", "dot1q", "qinq"]
                 }
             },
             "required": [
@@ -202,7 +210,9 @@
                 "user": {
                     "type": ["string", "null"]
                 },
-                "accept_insecure_certificate": { "type": "boolean" }
+                "accept_insecure_certificate": {
+                    "type": ["string", "null"]
+                }
             },
             "required": [
                 "host",
@@ -217,7 +227,7 @@
             "properties": {
                 "protocol": { "enum": ["ssh"] },
                 "cloud": { "type": "boolean" },
-                "vm": { "type": "boolean" },                
+                "vm": { "type": "boolean" },
                 "host": { "$ref": "#/definitions/mandatory_string" },
                 "id": { "$ref": "#/definitions/numeric_id" },
                 "local": { "type": "boolean" },
@@ -590,8 +600,6 @@
                 "name",
                 "console",
                 "image",
-                "mac_addr",
-                "nvram",
                 "startup_config"
             ],
             "additionalProperties": false

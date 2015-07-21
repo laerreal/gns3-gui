@@ -20,10 +20,9 @@ Thread to wait for the GNS3 VM.
 """
 
 import os
+import time
 import socket
 import subprocess
-import urllib.request
-import json
 
 from ..qt import QtCore
 from ..version import __version__
@@ -107,12 +106,25 @@ class WaitForVMWorker(QtCore.QObject):
                     return True
         return False
 
+    def _getInterfaces(self, vm_server, retry=0):
+        """
+        :param vm_server: The instance
+        :param retry: How many time we need to retry if server doesn't answer wait 1 second between test
+        """
+        while retry >= 0:
+            status, json_data = vm_server.getSynchronous("interfaces", timeout=1)
+            if status == 200:
+                break
+            time.sleep(1)
+            retry -= 1
+        return status, json_data
+
     def run(self):
         """
         Worker starting point.
         """
 
-        server = Servers.instance().vmServer()
+        vm_server = Servers.instance().vmServer()
 
         self._is_running = True
         if self._virtualization == "VMware":
@@ -144,9 +156,14 @@ class WaitForVMWorker(QtCore.QObject):
                     return
 
                 # get the guest IP address (first adapter only)
-                server.setHost(self._vm.execute_vmrun("getGuestIPAddress", [self._vmx_path, "-wait"]))
+                guest_ip_address = self._vm.execute_vmrun("getGuestIPAddress", [self._vmx_path, "-wait"], timeout=120)
+                vm_server.setHost(guest_ip_address)
+                log.info("GNS3 VM IP address set to {}".format(guest_ip_address))
             except (OSError, subprocess.SubprocessError) as e:
                 self.error.emit("Could not execute vmrun: {}".format(e), True)
+                return
+            except subprocess.TimeoutExpired:
+                self.error.emit("vmrun timeout expired", True)
                 return
 
         elif self._virtualization == "VirtualBox":
@@ -193,15 +210,18 @@ class WaitForVMWorker(QtCore.QObject):
                 log.debug("Adding GNS3VM NAT port forwarding rule with port {} to interface {}".format(port, nat_interface_number))
                 self._vm.execute_vboxmanage("controlvm", [self._vmname, "natpf{}".format(nat_interface_number), "GNS3VM,tcp,{},{},,8000".format(ip_address, port)])
 
-                self.server.setHost(ip_address)
-
                 if not self._is_running:
                     return
 
+                original_port = vm_server.port()
+                vm_server.setPort(port)
+                vm_server.setHost(ip_address)
                 # ask the server all a list of all its interfaces along with IP addresses
-                status, json_data = server.getSynchronous("interfaces", timeout=120)
+                status, json_data = self._getInterfaces(vm_server, retry=120)
                 if status != 200:
-                    self.error.emit("Server has replied with status code {} when retrieving the network interfaces".format(status), True)
+                    msg = "Server {} has replied with status code {} when retrieving the network interfaces".format(vm_server.url(), status)
+                    log.error(msg)
+                    self.error.emit(msg, True)
                     return
 
                 # find the ip address for the first hostonly interface
@@ -209,7 +229,9 @@ class WaitForVMWorker(QtCore.QObject):
                 for interface in json_data:
                     if "name" in interface and interface["name"] == "eth{}".format(hostonly_interface_number - 1):
                         if "ip_address" in interface:
-                            server.setHost(interface["ip_address"])
+                            vm_server.setHost(interface["ip_address"])
+                            vm_server.setPort(original_port)
+                            log.info("GNS3 VM IP address set to {}".format(interface["ip_address"]))
                             hostonly_ip_address_found = True
                             break
 
@@ -220,18 +242,23 @@ class WaitForVMWorker(QtCore.QObject):
             except (OSError, subprocess.SubprocessError) as e:
                 self.error.emit("Could not execute VBoxManage: {}".format(e), True)
                 return
+            except subprocess.TimeoutExpired:
+                self.error.emit("VBoxmanage timeout expired", True)
+                return
 
         if not self._is_running:
             return
 
-        log.info("GNS3 VM is started and server is running on {}:{}".format(server.host(), server.port()))
+        log.info("GNS3 VM is started and server is running on {}:{}".format(vm_server.host(), vm_server.port()))
         try:
-            status, json_data = server.getSynchronous("version", timeout=120)
+            status, json_data = vm_server.getSynchronous("version", timeout=120)
             if status == 401:
                 self.error.emit("Wrong user or password for the GNS3 VM".format(status), True)
                 return
             elif status != 200:
-                self.error.emit("Server has replied with status code {} when retrieving version number".format(status), True)
+                msg = "Server has replied with status code {} when retrieving version number".format(status)
+                log.error(msg)
+                self.error.emit(msg, True)
                 return
             server_version = json_data["version"]
             if __version__ != server_version:

@@ -74,7 +74,7 @@ class HTTPClient(QtCore.QObject):
         self._gns3_vm = False
         self._ram_limit = settings.get("ram_limit", 0)
         self._allocated_ram = 0
-        self._accept_insecure_certificate = settings.get("accept_insecure_certificate", False)
+        self._accept_insecure_certificate = settings.get("accept_insecure_certificate", None)
 
         self._network_manager = network_manager
 
@@ -118,14 +118,21 @@ class HTTPClient(QtCore.QObject):
             settings["accept_insecure_certificate"] = self.acceptInsecureCertificate()
         return settings
 
-    def acceptInsecureCertificate(self):
+    def acceptInsecureCertificate(self, certificate=None):
         """
-        Does the server accept insecure SSL certificate
+        Does the server accept this insecure SSL certificate digest
+
+        :param: Certificate digest
         """
         return self._accept_insecure_certificate
 
-    def setAcceptInsecureCertificate(self, accept):
-        self._accept_insecure_certificate = accept
+    def setAcceptInsecureCertificate(self, certificate):
+        """
+        Does the server accept this insecure SSL certificate digest
+
+        :param: Certificate digest
+        """
+        self._accept_insecure_certificate = certificate
 
     def host(self):
         """
@@ -135,6 +142,7 @@ class HTTPClient(QtCore.QObject):
 
     def setHost(self, host):
         self._host = host
+        self._http_host = host
 
     def port(self):
         """
@@ -144,6 +152,7 @@ class HTTPClient(QtCore.QObject):
 
     def setPort(self, port):
         self._port = port
+        self._http_port = port
 
     def protocol(self):
         """
@@ -280,6 +289,7 @@ class HTTPClient(QtCore.QObject):
 
         :returns: boolean
         """
+
         status, json_data = self.getSynchronous("version", timeout=2)
         if json_data is None or status != 200:
             return False
@@ -292,6 +302,7 @@ class HTTPClient(QtCore.QObject):
             if not local_server:
                 log.debug("Running server is not a GNS3 local server (not started with --local)")
                 return False
+        return True
 
     def getSynchronous(self, endpoint, timeout=2):
         """
@@ -312,21 +323,20 @@ class HTTPClient(QtCore.QObject):
                 opener = urllib.request.build_opener(auth_handler)
                 urllib.request.install_opener(opener)
 
-            response = urllib.request.urlopen(url, timeout=2)
+            response = urllib.request.urlopen(url, timeout=timeout)
             content_type = response.getheader("CONTENT-TYPE")
             if response.status == 200:
                 if content_type == "application/json":
                     content = response.read()
                     json_data = json.loads(content.decode("utf-8"))
-                    local_server = json_data.get("local", False)
                     return response.status, json_data
             else:
                 return response.status, None
         except urllib.error.HTTPError as e:
-            log.debug("Error during get on {}:{}: {}".format(self._host, self._port, e))
+            log.debug("Error during get on {}:{}: {}".format(self.host(), self.port(), e))
             return e.code, None
         except (OSError, http.client.BadStatusLine, ValueError) as e:
-            log.debug("Error during get on {}:{}: {}".format(self._host, self._port, e))
+            log.debug("Error during get on {}:{}: {}".format(self.host(), self.port(), e))
             return 0, None
 
     def get(self, path, callback, **kwargs):
@@ -587,6 +597,11 @@ class HTTPClient(QtCore.QObject):
         """
 
         if response.error() == QtNetwork.QNetworkReply.NoError:
+            error_code = response.error()
+
+            if error_code >= 300:
+                return
+
             content = bytes(response.readAll())
             content_type = response.header(QtNetwork.QNetworkRequest.ContentTypeHeader)
             if content_type == "application/json":
@@ -659,7 +674,11 @@ class HTTPClient(QtCore.QObject):
         else:
             status = response.attribute(QtNetwork.QNetworkRequest.HttpStatusCodeAttribute)
             log.debug("Decoding response from {} response {}".format(response.url().toString(), status))
-            body = bytes(response.readAll()).decode("utf-8").strip("\0")
+            try:
+                body = bytes(response.readAll()).decode("utf-8").strip("\0")
+            # Some time anti-virus intercept our query and reply with garbage content
+            except UnicodeDecodeError:
+                body = None
             content_type = response.header(QtNetwork.QNetworkRequest.ContentTypeHeader)
             log.debug(body)
             if body and len(body.strip(" \n\t")) > 0 and content_type == "application/json":

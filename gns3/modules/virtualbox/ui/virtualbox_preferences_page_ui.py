@@ -1,18 +1,15 @@
 # -*- coding: utf-8 -*-
 
-# Form implementation generated from reading ui file 'virtualbox_preferences_page.ui'
+# Form implementation generated from reading ui file '/Users/noplay/code/gns3/gns3-gui/gns3/modules/virtualbox/ui/virtualbox_preferences_page.ui'
 #
-# Created: Wed May  6 14:31:57 2015
+# Created: Wed Jul 15 12:22:35 2015
 #      by: PyQt5 UI code generator 5.4
 #
 # WARNING! All changes made in this file will be lost!
 
-import gns3.qt
-from gns3.qt import QtCore, QtGui, QtWidgets
+from PyQt5 import QtCore, QtGui, QtWidgets
 
-
-class Ui_VirtualBoxPreferencesPageWidget:
-
+class Ui_VirtualBoxPreferencesPageWidget(object):
     def setupUi(self, VirtualBoxPreferencesPageWidget):
         VirtualBoxPreferencesPageWidget.setObjectName("VirtualBoxPreferencesPageWidget")
         VirtualBoxPreferencesPageWidget.resize(450, 250)
@@ -47,17 +44,6 @@ class Ui_VirtualBoxPreferencesPageWidget:
         self.uiVboxManagePathToolButton.setObjectName("uiVboxManagePathToolButton")
         self.horizontalLayout_5.addWidget(self.uiVboxManagePathToolButton)
         self.verticalLayout.addLayout(self.horizontalLayout_5)
-        self.uiVboxManageUserLabel = QtWidgets.QLabel(self.uiGeneralSettingsTabWidget)
-        self.uiVboxManageUserLabel.setObjectName("uiVboxManageUserLabel")
-        self.verticalLayout.addWidget(self.uiVboxManageUserLabel)
-        self.uiVboxManageUserLineEdit = QtWidgets.QLineEdit(self.uiGeneralSettingsTabWidget)
-        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.MinimumExpanding, QtWidgets.QSizePolicy.Fixed)
-        sizePolicy.setHorizontalStretch(0)
-        sizePolicy.setVerticalStretch(0)
-        sizePolicy.setHeightForWidth(self.uiVboxManageUserLineEdit.sizePolicy().hasHeightForWidth())
-        self.uiVboxManageUserLineEdit.setSizePolicy(sizePolicy)
-        self.uiVboxManageUserLineEdit.setObjectName("uiVboxManageUserLineEdit")
-        self.verticalLayout.addWidget(self.uiVboxManageUserLineEdit)
         spacerItem = QtWidgets.QSpacerItem(390, 193, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Expanding)
         self.verticalLayout.addItem(spacerItem)
         self.uiTabWidget.addTab(self.uiGeneralSettingsTabWidget, "")
@@ -76,11 +62,11 @@ class Ui_VirtualBoxPreferencesPageWidget:
         QtCore.QMetaObject.connectSlotsByName(VirtualBoxPreferencesPageWidget)
 
     def retranslateUi(self, VirtualBoxPreferencesPageWidget):
-        _translate = gns3.qt.translate
+        _translate = QtCore.QCoreApplication.translate
         VirtualBoxPreferencesPageWidget.setWindowTitle(_translate("VirtualBoxPreferencesPageWidget", "VirtualBox"))
         self.uiUseLocalServercheckBox.setText(_translate("VirtualBoxPreferencesPageWidget", "Use the local server"))
         self.uiVboxManagePathLabel.setText(_translate("VirtualBoxPreferencesPageWidget", "Path to VBoxManage:"))
         self.uiVboxManagePathToolButton.setText(_translate("VirtualBoxPreferencesPageWidget", "&Browse..."))
-        self.uiVboxManageUserLabel.setText(_translate("VirtualBoxPreferencesPageWidget", "Run VirtualBox as another user (GNS3 running as root):"))
         self.uiTabWidget.setTabText(self.uiTabWidget.indexOf(self.uiGeneralSettingsTabWidget), _translate("VirtualBoxPreferencesPageWidget", "General settings"))
         self.uiRestoreDefaultsPushButton.setText(_translate("VirtualBoxPreferencesPageWidget", "Restore defaults"))
+

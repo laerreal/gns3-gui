@@ -1,43 +1,41 @@
 # -*- coding: utf-8 -*-
 
-# Form implementation generated from reading ui file 'main_window.ui'
+# Form implementation generated from reading ui file '/Users/noplay/code/gns3/gns3-gui/gns3/ui/main_window.ui'
 #
-# Created by: PyQt5 UI code generator 5.4.1
+# Created: Wed Jul 15 12:22:30 2015
+#      by: PyQt5 UI code generator 5.4
 #
 # WARNING! All changes made in this file will be lost!
 
-import gns3.qt
-from gns3.qt import QtCore, QtGui, QtWidgets
+from PyQt5 import QtCore, QtGui, QtWidgets
 
-
-class Ui_MainWindow:
-
+class Ui_MainWindow(object):
     def setupUi(self, MainWindow):
         MainWindow.setObjectName("MainWindow")
         MainWindow.setWindowModality(QtCore.Qt.NonModal)
         MainWindow.resize(984, 715)
         MainWindow.setContextMenuPolicy(QtCore.Qt.PreventContextMenu)
         MainWindow.setStyleSheet("#toolBar_Devices QToolButton {\n"
-                                 "width: 50px;\n"
-                                 "height: 55px;\n"
-                                 "border:solid 1px black opacity 0.4;\n"
-                                 "background-none;\n"
-                                 "}\n"
-                                 "\n"
-                                 "#toolBar_General QToolButton {\n"
-                                 "width: 36px;\n"
-                                 "height: 36px;\n"
-                                 "border:solid 1px black opacity 0.4;\n"
-                                 "background-none;\n"
-                                 "}\n"
-                                 "\n"
-                                 "")
-        MainWindow.setDockOptions(QtWidgets.QMainWindow.AllowTabbedDocks | QtWidgets.QMainWindow.AnimatedDocks)
+"width: 50px;\n"
+"height: 55px;\n"
+"border:solid 1px black opacity 0.4;\n"
+"background-none;\n"
+"}\n"
+"\n"
+"#toolBar_General QToolButton {\n"
+"width: 36px;\n"
+"height: 36px;\n"
+"border:solid 1px black opacity 0.4;\n"
+"background-none;\n"
+"}\n"
+"\n"
+"")
+        MainWindow.setDockOptions(QtWidgets.QMainWindow.AllowTabbedDocks|QtWidgets.QMainWindow.AnimatedDocks)
         self.uiCentralWidget = QtWidgets.QWidget(MainWindow)
         self.uiCentralWidget.setObjectName("uiCentralWidget")
         self.gridlayout = QtWidgets.QGridLayout(self.uiCentralWidget)
-        self.gridlayout.setContentsMargins(0, 0, 0, 0)
         self.gridlayout.setSpacing(0)
+        self.gridlayout.setContentsMargins(0, 0, 0, 0)
         self.gridlayout.setObjectName("gridlayout")
         self.uiGraphicsView = GraphicsView(self.uiCentralWidget)
         sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
@@ -49,7 +47,7 @@ class Ui_MainWindow:
         self.gridlayout.addWidget(self.uiGraphicsView, 0, 0, 1, 1)
         MainWindow.setCentralWidget(self.uiCentralWidget)
         self.uiMenuBar = QtWidgets.QMenuBar(MainWindow)
-        self.uiMenuBar.setGeometry(QtCore.QRect(0, 0, 984, 25))
+        self.uiMenuBar.setGeometry(QtCore.QRect(0, 0, 984, 22))
         self.uiMenuBar.setObjectName("uiMenuBar")
         self.uiEditMenu = QtWidgets.QMenu(self.uiMenuBar)
         self.uiEditMenu.setObjectName("uiEditMenu")
@@ -84,7 +82,7 @@ class Ui_MainWindow:
         self.uiNodesDockWidget.setEnabled(True)
         self.uiNodesDockWidget.setVisible(True)
         self.uiNodesDockWidget.setFloating(False)
-        self.uiNodesDockWidget.setAllowedAreas(QtCore.Qt.LeftDockWidgetArea | QtCore.Qt.RightDockWidgetArea)
+        self.uiNodesDockWidget.setAllowedAreas(QtCore.Qt.LeftDockWidgetArea|QtCore.Qt.RightDockWidgetArea)
         self.uiNodesDockWidget.setObjectName("uiNodesDockWidget")
         self.uiNodesDockWidgetContents = QtWidgets.QWidget()
         self.uiNodesDockWidgetContents.setObjectName("uiNodesDockWidgetContents")
@@ -146,7 +144,7 @@ class Ui_MainWindow:
         sizePolicy.setVerticalStretch(0)
         sizePolicy.setHeightForWidth(self.uiTopologySummaryDockWidget.sizePolicy().hasHeightForWidth())
         self.uiTopologySummaryDockWidget.setSizePolicy(sizePolicy)
-        self.uiTopologySummaryDockWidget.setAllowedAreas(QtCore.Qt.LeftDockWidgetArea | QtCore.Qt.RightDockWidgetArea)
+        self.uiTopologySummaryDockWidget.setAllowedAreas(QtCore.Qt.LeftDockWidgetArea|QtCore.Qt.RightDockWidgetArea)
         self.uiTopologySummaryDockWidget.setObjectName("uiTopologySummaryDockWidget")
         self.uiTopologySummaryDockWidgetContents = QtWidgets.QWidget()
         sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Preferred)
@@ -156,8 +154,8 @@ class Ui_MainWindow:
         self.uiTopologySummaryDockWidgetContents.setSizePolicy(sizePolicy)
         self.uiTopologySummaryDockWidgetContents.setObjectName("uiTopologySummaryDockWidgetContents")
         self.gridlayout1 = QtWidgets.QGridLayout(self.uiTopologySummaryDockWidgetContents)
-        self.gridlayout1.setContentsMargins(0, 0, 0, 0)
         self.gridlayout1.setSpacing(0)
+        self.gridlayout1.setContentsMargins(0, 0, 0, 0)
         self.gridlayout1.setObjectName("gridlayout1")
         self.uiTopologySummaryTreeWidget = TopologySummaryView(self.uiTopologySummaryDockWidgetContents)
         sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
@@ -250,6 +248,7 @@ class Ui_MainWindow:
         icon11 = QtGui.QIcon()
         icon11.addPixmap(QtGui.QPixmap(":/icons/applications.svg"), QtGui.QIcon.Normal, QtGui.QIcon.Off)
         self.uiPreferencesAction.setIcon(icon11)
+        self.uiPreferencesAction.setMenuRole(QtWidgets.QAction.PreferencesRole)
         self.uiPreferencesAction.setObjectName("uiPreferencesAction")
         self.uiSuspendAllAction = QtWidgets.QAction(MainWindow)
         icon12 = QtGui.QIcon()
@@ -367,10 +366,10 @@ class Ui_MainWindow:
         self.uiAddLinkAction = QtWidgets.QAction(MainWindow)
         self.uiAddLinkAction.setCheckable(True)
         icon29 = QtGui.QIcon()
-        icon29.addPixmap(QtGui.QPixmap(":/icons/cancel-connection.svg"), QtGui.QIcon.Active, QtGui.QIcon.On)
         icon29.addPixmap(QtGui.QPixmap(":/icons/connection-new.svg"), QtGui.QIcon.Normal, QtGui.QIcon.Off)
         icon29.addPixmap(QtGui.QPixmap(":/icons/connection-new-hover.svg"), QtGui.QIcon.Active, QtGui.QIcon.Off)
         icon29.addPixmap(QtGui.QPixmap(":/icons/cancel-connection.svg"), QtGui.QIcon.Normal, QtGui.QIcon.On)
+        icon29.addPixmap(QtGui.QPixmap(":/icons/cancel-connection.svg"), QtGui.QIcon.Active, QtGui.QIcon.On)
         self.uiAddLinkAction.setIcon(icon29)
         self.uiAddLinkAction.setObjectName("uiAddLinkAction")
         self.uiGettingStartedAction = QtWidgets.QAction(MainWindow)
@@ -407,6 +406,9 @@ class Ui_MainWindow:
         icon31.addPixmap(QtGui.QPixmap(":/icons/qemu.svg"), QtGui.QIcon.Normal, QtGui.QIcon.Off)
         self.uiQemuImgWizardAction.setIcon(icon31)
         self.uiQemuImgWizardAction.setObjectName("uiQemuImgWizardAction")
+        self.uiSetupWizard = QtWidgets.QAction(MainWindow)
+        self.uiSetupWizard.setMenuRole(QtWidgets.QAction.NoRole)
+        self.uiSetupWizard.setObjectName("uiSetupWizard")
         self.uiEditMenu.addAction(self.uiSelectAllAction)
         self.uiEditMenu.addAction(self.uiSelectNoneAction)
         self.uiEditMenu.addSeparator()
@@ -429,6 +431,7 @@ class Ui_MainWindow:
         self.uiFileMenu.addAction(self.uiQuitAction)
         self.uiHelpMenu.addAction(self.uiOnlineHelpAction)
         self.uiHelpMenu.addAction(self.uiCheckForUpdateAction)
+        self.uiHelpMenu.addAction(self.uiSetupWizard)
         self.uiHelpMenu.addAction(self.uiGettingStartedAction)
         self.uiHelpMenu.addAction(self.uiLabInstructionsAction)
         self.uiHelpMenu.addAction(self.uiAboutQtAction)
@@ -504,7 +507,7 @@ class Ui_MainWindow:
         MainWindow.setTabOrder(self.uiConsoleTextEdit, self.uiTopologySummaryTreeWidget)
 
     def retranslateUi(self, MainWindow):
-        _translate = gns3.qt.translate
+        _translate = QtCore.QCoreApplication.translate
         self.uiEditMenu.setTitle(_translate("MainWindow", "&Edit"))
         self.uiFileMenu.setTitle(_translate("MainWindow", "&File"))
         self.uiHelpMenu.setTitle(_translate("MainWindow", "&Help"))
@@ -661,9 +664,10 @@ class Ui_MainWindow:
         self.uiVPCSAction.setText(_translate("MainWindow", "&VPCS multi-host"))
         self.uiDownloadRemoteProject.setText(_translate("MainWindow", "Download remote project"))
         self.uiQemuImgWizardAction.setText(_translate("MainWindow", "Qemu image wizard"))
+        self.uiSetupWizard.setText(_translate("MainWindow", "&Setup Wizard"))
 
-from ..graphics_view import GraphicsView
 from ..console_view import ConsoleView
-from ..topology_summary_view import TopologySummaryView
 from ..nodes_view import NodesView
+from ..graphics_view import GraphicsView
+from ..topology_summary_view import TopologySummaryView
 from . import resources_rc

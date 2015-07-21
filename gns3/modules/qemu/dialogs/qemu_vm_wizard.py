@@ -23,13 +23,14 @@ import sys
 
 from gns3.qt import QtCore, QtGui, QtWidgets
 from gns3.node import Node
+from gns3.gns3_vm import GNS3VM
 from gns3.modules.module_error import ModuleError
 from gns3.dialogs.vm_wizard import VMWizard
 
 from .. import Qemu
 from ..ui.qemu_vm_wizard_ui import Ui_QemuVMWizard
 from ..pages.qemu_vm_configuration_page import QemuVMConfigurationPage
-
+from .qemu_image_wizard import QemuImageWizard
 
 class QemuVMWizard(VMWizard, Ui_QemuVMWizard):
 
@@ -60,8 +61,8 @@ class QemuVMWizard(VMWizard, Ui_QemuVMWizard):
         self._qemu_vms = qemu_vms
 
         # Fill image combo boxes
-        self.addImageSelector(self.uiHdaDiskExistingImageRadioButton, self.uiHdaDiskImageListComboBox, self.uiHdaDiskImageLineEdit, self.uiHdaDiskImageToolButton, QemuVMConfigurationPage.getDiskImage)
-        self.addImageSelector(self.uiHdbDiskExistingImageRadioButton, self.uiHdbDiskImageListComboBox, self.uiHdbDiskImageLineEdit, self.uiHdbDiskImageToolButton, QemuVMConfigurationPage.getDiskImage)
+        self.addImageSelector(self.uiHdaDiskExistingImageRadioButton, self.uiHdaDiskImageListComboBox, self.uiHdaDiskImageLineEdit, self.uiHdaDiskImageToolButton, QemuVMConfigurationPage.getDiskImage, create_image_wizard=QemuImageWizard, create_button=self.uiHdaDiskImageCreateToolButton)
+        self.addImageSelector(self.uiHdbDiskExistingImageRadioButton, self.uiHdbDiskImageListComboBox, self.uiHdbDiskImageLineEdit, self.uiHdbDiskImageToolButton, QemuVMConfigurationPage.getDiskImage, create_image_wizard=QemuImageWizard, create_button=self.uiHdbDiskImageCreateToolButton)
         self.addImageSelector(self.uiLinuxExistingImageRadioButton, self.uiInitrdImageListComboBox, self.uiInitrdImageLineEdit, self.uiInitrdImageToolButton, QemuVMConfigurationPage.getDiskImage)
         self.addImageSelector(self.uiLinuxExistingImageRadioButton, self.uiKernelImageListComboBox, self.uiKernelImageLineEdit, self.uiKernelImageToolButton, QemuVMConfigurationPage.getDiskImage)
 
@@ -76,6 +77,7 @@ class QemuVMWizard(VMWizard, Ui_QemuVMWizard):
         :param vm_type: type of VM
         """
 
+        self.uiASADeprecatedWarningLabel.hide()
         if vm_type == "IOSv":
             self.setPixmap(QtWidgets.QWizard.LogoPixmap, QtGui.QPixmap(":/symbols/iosv_virl.svg"))
             self.uiNameLineEdit.setText("vIOS")
@@ -91,6 +93,7 @@ class QemuVMWizard(VMWizard, Ui_QemuVMWizard):
         elif vm_type == "ASA 8.4(2)":
             self.setPixmap(QtWidgets.QWizard.LogoPixmap, QtGui.QPixmap(":/symbols/asa.svg"))
             self.uiNameLineEdit.setText("ASA")
+            self.uiASADeprecatedWarningLabel.show()
         elif vm_type == "IDS":
             self.setPixmap(QtWidgets.QWizard.LogoPixmap, QtGui.QPixmap(":/symbols/ids.svg"))
             self.uiNameLineEdit.setText("IDS")
@@ -125,10 +128,11 @@ class QemuVMWizard(VMWizard, Ui_QemuVMWizard):
     def initializePage(self, page_id):
 
         super().initializePage(page_id)
-
-        if self.page(page_id) in [self.uiDiskWizardPage, self.uiASAWizardPage, self.uiDiskImageHdbWizardPage]:
+        if self.page(page_id) == self.uiServerWizardPage and GNS3VM.instance().isRunning():
+            self.uiVMRadioButton.setChecked(True)
+        elif self.page(page_id) in [self.uiDiskWizardPage, self.uiASAWizardPage, self.uiDiskImageHdbWizardPage]:
             self.loadImagesList("/qemu/vms")
-        if self.page(page_id) == self.uiBinaryMemoryWizardPage:
+        elif self.page(page_id) == self.uiBinaryMemoryWizardPage:
             try:
                 Qemu.instance().getQemuBinariesFromServer(self._server, self._getQemuBinariesFromServerCallback)
             except ModuleError as e:
@@ -217,7 +221,7 @@ class QemuVMWizard(VMWizard, Ui_QemuVMWizard):
             settings["initrd"] = self.uiInitrdImageLineEdit.text()
             settings["kernel_image"] = self.uiKernelImageLineEdit.text()
             settings["kernel_command_line"] = "ide_generic.probe_mask=0x01 ide_core.chs=0.0:980,16,32 auto nousb console=ttyS0,9600 bigphysarea=65536 ide1=noprobe no-hlt"
-            settings["options"] = "-icount auto -hdachs 980,16,32"
+            settings["options"] = "-no-kvm -icount auto -hdachs 980,16,32"
             if not sys.platform.startswith("darwin"):
                 settings["cpu_throttling"] = 80  # limit to 80% CPU usage
             settings["process_priority"] = "low"
@@ -253,6 +257,11 @@ class QemuVMWizard(VMWizard, Ui_QemuVMWizard):
 
         current_id = self.currentId()
         if self.page(current_id) == self.uiTypeWizardPage:
+
+            if sys.platform.startswith("linux") or not self.uiLocalRadioButton.isChecked():
+                self.uiOSDeprecatedWarningLabel.hide()
+            else:
+                self.uiOSDeprecatedWarningLabel.show()
 
             if self.uiTypeComboBox.currentText().startswith("IOSv"):
                 self.uiRamSpinBox.setValue(384)

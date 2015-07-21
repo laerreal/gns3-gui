@@ -22,6 +22,7 @@ Manages the GNS3 VM.
 import sys
 import subprocess
 
+from .qt import QtNetwork
 from .servers import Servers
 
 import logging
@@ -57,7 +58,7 @@ class GNS3VM:
         Servers.instance().setVMsettings(settings)
 
     @staticmethod
-    def execute_vmrun(subcommand, args):
+    def execute_vmrun(subcommand, args, timeout=10):
 
         from gns3.modules.vmware import VMware
         vmware_settings = VMware.instance().settings()
@@ -69,11 +70,11 @@ class GNS3VM:
             command = [vmrun_path, "-T", host_type, subcommand]
         command.extend(args)
         log.debug("Executing vmrun with command: {}".format(command))
-        output = subprocess.check_output(command)
+        output = subprocess.check_output(command, timeout=timeout)
         return output.decode("utf-8", errors="ignore").strip()
 
     @staticmethod
-    def execute_vboxmanage(subcommand, args):
+    def execute_vboxmanage(subcommand, args, timeout=10):
 
         from gns3.modules.virtualbox import VirtualBox
         virtualbox_settings = VirtualBox.instance().settings()
@@ -81,7 +82,7 @@ class GNS3VM:
         command = [vboxmanage_path, "--nologo", subcommand]
         command.extend(args)
         log.debug("Executing VBoxManage with command: {}".format(command))
-        output = subprocess.check_output(command)
+        output = subprocess.check_output(command, timeout=timeout)
         return output.decode("utf-8", errors="ignore").strip()
 
     def autoStart(self):
@@ -93,6 +94,34 @@ class GNS3VM:
 
         vm_settings = Servers.instance().vmSettings()
         return vm_settings["auto_start"]
+
+    def adjustLocalServerIP(self):
+        """
+        Adjust the local server IP address to be in the same subnet as the GNS3 VM.
+
+        :returns: the local server IP/host address
+        """
+
+        servers = Servers.instance()
+        local_server_settings = servers.localServerSettings()
+        if Servers.instance().vmSettings()["adjust_local_server_ip"]:
+            vm_server = servers.vmServer()
+            vm_ip_address = vm_server.host()
+            log.debug("GNS3 VM IP address is {}".format(vm_ip_address))
+
+            for interface in QtNetwork.QNetworkInterface.allInterfaces():
+                for address in interface.addressEntries():
+                    ip = address.ip().toString()
+                    prefix_length = address.prefixLength()
+                    subnet = QtNetwork.QHostAddress.parseSubnet("{}/{}".format(ip, prefix_length))
+                    if QtNetwork.QHostAddress(vm_ip_address).isInSubnet(subnet):
+                        if local_server_settings["host"] != ip:
+                            log.info("Adjust local server IP address to {}".format(ip))
+                            servers.setLocalServerSettings({"host": ip})
+                            servers.registerLocalServer()
+                            servers.save()
+                            return ip
+        return local_server_settings["host"]
 
     def setRunning(self, value):
         """
@@ -123,9 +152,11 @@ class GNS3VM:
                 if vm_settings["virtualization"] == "VMware":
                     self.execute_vmrun("stop", [vm_settings["vmx_path"], "soft"])
                 elif vm_settings["virtualization"] == "VirtualBox":
-                    self.execute_vboxmanage("controlvm", [vm_settings["vmname"], "acpipowerbutton"])
+                    self.execute_vboxmanage("controlvm", [vm_settings["vmname"], "acpipowerbutton"], timeout=3)
             except (OSError, subprocess.SubprocessError):
                 pass
+            except subprocess.TimeoutExpired:
+                log.warning("Could not ACPI shutdown the VM (timeout expired)")
 
     @staticmethod
     def instance():
