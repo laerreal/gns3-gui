@@ -1,14 +1,12 @@
 # -*- coding: utf-8 -*-
 
-# Form implementation generated from reading ui file 'docker_vm_wizard.ui'
+# Form implementation generated from reading ui file '/Users/noplay/code/gns3/gns3-gui/gns3/modules/docker/ui/docker_vm_wizard.ui'
 #
-# Created: Wed Jun 17 12:15:13 2015
-#      by: PyQt5 UI code generator 5.4
+# Created by: PyQt5 UI code generator 5.4.2
 #
 # WARNING! All changes made in this file will be lost!
 
-import gns3.qt
-from gns3.qt import QtCore, QtGui, QtWidgets
+from PyQt5 import QtCore, QtGui, QtWidgets
 
 class Ui_DockerVMWizard(object):
     def setupUi(self, DockerVMWizard):
@@ -79,7 +77,7 @@ class Ui_DockerVMWizard(object):
         QtCore.QMetaObject.connectSlotsByName(DockerVMWizard)
 
     def retranslateUi(self, DockerVMWizard):
-        _translate = gns3.qt.translate
+        _translate = QtCore.QCoreApplication.translate
         DockerVMWizard.setWindowTitle(_translate("DockerVMWizard", "New Docker VM template"))
         self.uiServerWizardPage.setTitle(_translate("DockerVMWizard", "Server"))
         self.uiServerWizardPage.setSubTitle(_translate("DockerVMWizard", "Please choose a server type to run your new Docker VM."))

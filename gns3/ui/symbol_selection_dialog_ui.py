@@ -2,8 +2,7 @@
 
 # Form implementation generated from reading ui file '/Users/noplay/code/gns3/gns3-gui/gns3/ui/symbol_selection_dialog.ui'
 #
-# Created: Wed Jul 15 12:22:31 2015
-#      by: PyQt5 UI code generator 5.4
+# Created by: PyQt5 UI code generator 5.4.2
 #
 # WARNING! All changes made in this file will be lost!
 
@@ -55,6 +54,9 @@ class Ui_SymbolSelectionDialog(object):
         self.verticalLayout_2.addLayout(self.horizontalLayout)
         spacerItem1 = QtWidgets.QSpacerItem(20, 34, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Expanding)
         self.verticalLayout_2.addItem(spacerItem1)
+        self.uiButtonBox.raise_()
+        self.uiBuiltInGroupBox.raise_()
+        self.groupBox.raise_()
 
         self.retranslateUi(SymbolSelectionDialog)
         self.uiButtonBox.accepted.connect(SymbolSelectionDialog.accept)

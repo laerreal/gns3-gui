@@ -1,13 +1,12 @@
 # -*- coding: utf-8 -*-
 
-# Form implementation generated from reading ui file 'docker_preferences_page.ui'
+# Form implementation generated from reading ui file '/Users/noplay/code/gns3/gns3-gui/gns3/modules/docker/ui/docker_preferences_page.ui'
 #
-# Created by: PyQt5 UI code generator 5.4.1
+# Created by: PyQt5 UI code generator 5.4.2
 #
 # WARNING! All changes made in this file will be lost!
 
-import gns3.qt
-from gns3.qt import QtCore, QtGui, QtWidgets
+from PyQt5 import QtCore, QtGui, QtWidgets
 
 class Ui_DockerPreferencesPageWidget(object):
     def setupUi(self, DockerPreferencesPageWidget):
@@ -44,7 +43,7 @@ class Ui_DockerPreferencesPageWidget(object):
         QtCore.QMetaObject.connectSlotsByName(DockerPreferencesPageWidget)
 
     def retranslateUi(self, DockerPreferencesPageWidget):
-        _translate = gns3.qt.translate
+        _translate = QtCore.QCoreApplication.translate
         DockerPreferencesPageWidget.setWindowTitle(_translate("DockerPreferencesPageWidget", "Docker"))
         self.uiUseLocalServercheckBox.setText(_translate("DockerPreferencesPageWidget", "Use the local server"))
         self.uiTabWidget.setTabText(self.uiTabWidget.indexOf(self.uiServerSettingsTabWidget), _translate("DockerPreferencesPageWidget", "General settings"))
