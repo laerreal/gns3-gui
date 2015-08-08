@@ -114,7 +114,7 @@ else:
 if sys.platform.startswith("linux"):
     PRECONFIGURED_SHELL_CONSOLE_COMMANDS = {
         'Xterm': 'xterm -T "%d" -e "%s"',
-        'Gnome Terminal': 'gnome-terminal -t "%d" -e "%s"',
+        'Gnome Terminal': 'gnome-terminal -e "%s"',
         'Xfce4 Terminal': 'xfce4-terminal -T "%d" -e "%s"',
         'ROXTerm': 'roxterm -n "%d" --tab -e "%s"',
         'KDE Konsole': 'konsole --new-tab -p tabtitle="%d" -e "%s"',
