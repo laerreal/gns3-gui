@@ -18,7 +18,6 @@
 """Wizard for Docker images."""
 
 from gns3.qt import QtGui, QtWidgets
-from gns3.servers import Servers
 from gns3.dialogs.vm_wizard import VMWizard
 
 from ..ui.docker_vm_wizard_ui import Ui_DockerVMWizard
@@ -37,6 +36,7 @@ class DockerVMWizard(VMWizard, Ui_DockerVMWizard):
         super().__init__(parent)
         self.setPixmap(QtWidgets.QWizard.LogoPixmap, QtGui.QPixmap(
             ":/icons/docker.png"))
+        self.setWizardStyle(QtWidgets.QWizard.ModernStyle)
 
         self._docker_images = docker_images
 
