@@ -89,7 +89,7 @@ class Docker(Module):
     def setDockerImages(self, new_docker_images):
         """Sets Docker image settings.
 
-        :param new_iou_images: IOS images settings (dictionary)
+        :param new_iou_images: Docker images settings (dictionary)
         """
         self._docker_images = new_docker_images.copy()
         self._saveDockerImages()
@@ -151,20 +151,24 @@ class Docker(Module):
         if not image:
             selected_images = []
             for image, info in self._docker_images.items():
-                if info["server"] == node.server().host() or (node.server().isLocal() and info["server"] == "local"):
+                if info["server"] == node.server().host() or (
+                        node.server().isLocal() and info["server"] == "local"):
                     selected_images.append(image)
 
             if not selected_images:
-                raise ModuleError("No Docker VM on server {}".format(node.server().url()))
+                raise ModuleError("No Docker VM on server {}".format(
+                    node.server().url()))
             elif len(selected_images) > 1:
                 from gns3.main_window import MainWindow
                 mainwindow = MainWindow.instance()
 
-                (selection, ok) = QtWidgets.QInputDialog.getItem(mainwindow, "VirtualBox VM", "Please choose a VM", selected_vms, 0, False)
+                (selection, ok) = QtWidgets.QInputDialog.getItem(
+                    mainwindow, "Docker Image", "Please choose an image",
+                    selected_images, 0, False)
                 if ok:
                     image = selection
                 else:
-                    raise ModuleError("Please select a Docker VM")
+                    raise ModuleError("Please select a Docker Image")
             else:
                 image = selected_images[0]
 
