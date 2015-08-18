@@ -17,6 +17,7 @@
 
 import sys
 import os
+import psutil
 
 from gns3.qt import QtCore, QtWidgets
 from gns3.servers import Servers
@@ -25,6 +26,7 @@ from ..dialogs.preferences_dialog import PreferencesDialog
 from ..ui.setup_wizard_ui import Ui_SetupWizard
 from ..utils.progress_dialog import ProgressDialog
 from ..utils.wait_for_vm_worker import WaitForVMWorker
+from ..utils.wait_for_connection_worker import WaitForConnectionWorker
 
 
 class SetupWizard(QtWidgets.QWizard, Ui_SetupWizard):
@@ -106,6 +108,23 @@ class SetupWizard(QtWidgets.QWizard, Ui_SetupWizard):
         dialog.uiTreeWidget.setCurrentItem(child_pane)
         return dialog.uiStackedWidget.currentWidget()
 
+    def initializePage(self, page_id):
+        """
+        Initialize Wizard pages.
+
+        :param page_id: page identifier
+        """
+
+        super().initializePage(page_id)
+        if self.page(page_id) == self.uiVMWizardPage:
+            cpu_count = psutil.cpu_count()
+            self.uiCPUSpinBox.setValue(cpu_count)
+            # we want to allocate half of the available physical memory
+            ram = int(psutil.virtual_memory().total / (1024 * 1024) / 2)
+            # value must be a multiple of 4 (VMware requirement)
+            ram -= ram % 4
+            self.uiRAMSpinBox.setValue(ram)
+
     def validateCurrentPage(self):
         """
         Validates the settings.
@@ -127,13 +146,34 @@ class SetupWizard(QtWidgets.QWizard, Ui_SetupWizard):
                 gns3_vm.setSettings(vm_settings)
                 servers.save()
 
+                # set the vCPU count and RAM
+                vpcus = self.uiCPUSpinBox.value()
+                ram = self.uiRAMSpinBox.value()
+                if ram < 1024:
+                    QtWidgets.QMessageBox.warning(self, "GNS3 VM memory", "It is recommended to allocate a minimum of 1024 MB of RAM to the GNS3 VM")
+                available_ram = int(psutil.virtual_memory().available / (1024 * 1024))
+                if ram > available_ram:
+                    QtWidgets.QMessageBox.warning(self, "GNS3 VM memory", "You have probably allocated too much memory for the GNS3 VM! (available memory is {} MB)".format(available_ram))
+                if gns3_vm.setvCPUandRAM(vpcus, ram) is False:
+                    QtWidgets.QMessageBox.warning(self, "GNS3 VM", "Could not configure vCPUs and RAM amounts for the GNS3 VM")
+
                 # start the GNS3 VM
                 servers.initVMServer()
                 worker = WaitForVMWorker()
                 progress_dialog = ProgressDialog(worker, "GNS3 VM", "Starting the GNS3 VM...", "Cancel", busy=True, parent=self)
                 progress_dialog.show()
                 if progress_dialog.exec_():
-                    gns3_vm.adjustLocalServerIP()
+                    previous_local_server_ip = servers.localServer().host()
+                    new_local_server_ip = gns3_vm.adjustLocalServerIP()
+                    self.uiShowCheckBox.setChecked(True)
+                    # restart the local server if necessary
+                    if new_local_server_ip != previous_local_server_ip:
+                        servers.stopLocalServer(wait=True)
+                        if servers.startLocalServer():
+                            worker = WaitForConnectionWorker(new_local_server_ip, servers.localServer().port())
+                            dialog = ProgressDialog(worker, "Local server", "Connecting...", "Cancel", busy=True, parent=self)
+                            dialog.show()
+                            dialog.exec_()
             else:
                 return False
         elif self.currentPage() == self.uiAddVMsWizardPage:
@@ -144,6 +184,8 @@ class SetupWizard(QtWidgets.QWizard, Ui_SetupWizard):
                 vm_settings = {"auto_start": False}
                 gns3_vm.setSettings(vm_settings)
                 servers.save()
+                self.uiShowCheckBox.setChecked(True)
+
             from gns3.modules import Dynamips
             Dynamips.instance().setSettings({"use_local_server": use_local_server})
             if sys.platform.startswith("linux"):
@@ -197,10 +239,7 @@ class SetupWizard(QtWidgets.QWizard, Ui_SetupWizard):
         else:
             self.uiVMListComboBox.clear()
             for vm in result:
-                if self.uiVmwareRadioButton.isChecked():
-                    self.uiVMListComboBox.addItem(vm["vmname"], vm["vmx_path"])
-                else:
-                    self.uiVMListComboBox.addItem(vm["vmname"], "")
+                self.uiVMListComboBox.addItem(vm["vmname"], vm.get("vmx_path", ""))
             gns3_vm = Servers.instance().vmSettings()
             index = self.uiVMListComboBox.findText(gns3_vm["vmname"])
             if index != -1:

@@ -91,6 +91,44 @@ class WaitForVMWorker(QtCore.QObject):
                         continue
         return interface
 
+    def _look_for_vboxnet(self, interface_number):
+        """
+        Look for the VirtualBox network name associated with a host only interface.
+
+        :returns: None or vboxnet name
+        """
+
+        result = self._vm.execute_vboxmanage("showvminfo", [self._vmname, "--machinereadable"])
+        for info in result.splitlines():
+            if '=' in info:
+                name, value = info.split('=', 1)
+                if name == "hostonlyadapter{}".format(interface_number):
+                    return value.strip('"')
+        return None
+
+    def _check_dhcp_server(self, vboxnet):
+        """
+        Check if the DHCP server associated with a vboxnet is enabled.
+
+        :param vboxnet: vboxnet name
+
+        :returns: boolean
+        """
+
+        properties = self._vm.execute_vboxmanage("list", ["dhcpservers"])
+        flag_dhcp_server_found = False
+        for prop in properties.splitlines():
+            try:
+                name, value = prop.split(':', 1)
+            except ValueError:
+                continue
+            if name.strip() == "NetworkName" and value.strip().endswith(vboxnet):
+                flag_dhcp_server_found = True
+            if flag_dhcp_server_found and name.strip() == "Enabled":
+                if value.strip() == "Yes":
+                    return True
+        return False
+
     def _check_vbox_port_forwarding(self):
         """
         Checks if the NAT port forwarding rule exists.
@@ -106,14 +144,20 @@ class WaitForVMWorker(QtCore.QObject):
                     return True
         return False
 
-    def _getInterfaces(self, vm_server, retry=0):
+    @staticmethod
+    def _waitForServer(vm_server, endpoint, retry=0):
         """
-        :param vm_server: The instance
+        Wait for a VM server to reply to a request.
+
+        :param vm_server: The server instance
         :param retry: How many time we need to retry if server doesn't answer wait 1 second between test
         """
+
+        json_data = []
+        status = 0
         while retry >= 0:
-            status, json_data = vm_server.getSynchronous("interfaces", timeout=1)
-            if status == 200:
+            status, json_data = vm_server.getSynchronous(endpoint, timeout=1)
+            if status != 0:
                 break
             time.sleep(1)
             retry -= 1
@@ -181,6 +225,15 @@ class WaitForVMWorker(QtCore.QObject):
                     self.error.emit("The GNS3 VM must have a host only interface configured in order to start", True)
                     return
 
+                vboxnet = self._look_for_vboxnet(hostonly_interface_number)
+                if vboxnet is None:
+                    self.error.emit("VirtualBox host-only network could not be found for interface {}".format(hostonly_interface_number), True)
+                    return
+
+                if not self._check_dhcp_server(vboxnet):
+                    self.error.emit("DHCP must be enabled on VirtualBox host-only network: {}".format(vboxnet), True)
+                    return
+
                 vm_state = self._get_vbox_vm_state()
                 log.info('"{}" state is {}'.format(self._vmname, vm_state))
                 if vm_state in ("poweroff", "saved"):
@@ -217,7 +270,10 @@ class WaitForVMWorker(QtCore.QObject):
                 vm_server.setPort(port)
                 vm_server.setHost(ip_address)
                 # ask the server all a list of all its interfaces along with IP addresses
-                status, json_data = self._getInterfaces(vm_server, retry=120)
+                status, json_data = self._waitForServer(vm_server, "interfaces", retry=120)
+                if status == 401:
+                    self.error.emit("Wrong user or password for the GNS3 VM".format(status), True)
+                    return
                 if status != 200:
                     msg = "Server {} has replied with status code {} when retrieving the network interfaces".format(vm_server.url(), status)
                     log.error(msg)
@@ -251,7 +307,7 @@ class WaitForVMWorker(QtCore.QObject):
 
         log.info("GNS3 VM is started and server is running on {}:{}".format(vm_server.host(), vm_server.port()))
         try:
-            status, json_data = vm_server.getSynchronous("version", timeout=120)
+            status, json_data = self._waitForServer(vm_server, "version", retry=120)
             if status == 401:
                 self.error.emit("Wrong user or password for the GNS3 VM".format(status), True)
                 return

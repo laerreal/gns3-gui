@@ -20,7 +20,6 @@ Configuration page for QEMU VMs.
 """
 
 import os
-import sys
 import re
 
 from functools import partial
@@ -52,15 +51,25 @@ class QemuVMConfigurationPage(QtWidgets.QWidget, Ui_QemuVMConfigPageWidget):
         self.setupUi(self)
         self._server = None
 
+        self.uiBootPriorityComboBox.addItem("HDD", "c")
+        self.uiBootPriorityComboBox.addItem("CD/DVD-ROM", "d")
+
         self.uiHdaDiskImageToolButton.clicked.connect(self._hdaDiskImageBrowserSlot)
         self.uiHdbDiskImageToolButton.clicked.connect(self._hdbDiskImageBrowserSlot)
         self.uiHdcDiskImageToolButton.clicked.connect(self._hdcDiskImageBrowserSlot)
         self.uiHddDiskImageToolButton.clicked.connect(self._hddDiskImageBrowserSlot)
+        self.uiCdromImageToolButton.clicked.connect(self._cdromImageBrowserSlot)
 
         self.uiHdaDiskImageCreateToolButton.clicked.connect(self._hdaDiskImageCreateSlot)
         self.uiHdbDiskImageCreateToolButton.clicked.connect(self._hdbDiskImageCreateSlot)
         self.uiHdcDiskImageCreateToolButton.clicked.connect(self._hdcDiskImageCreateSlot)
         self.uiHddDiskImageCreateToolButton.clicked.connect(self._hddDiskImageCreateSlot)
+
+        disk_interfaces = ["ide", "scsi", "sd", "mtd", "floppy", "pflash", "virtio"]
+        self.uiHdaDiskInterfaceComboBox.addItems(disk_interfaces)
+        self.uiHdbDiskInterfaceComboBox.addItems(disk_interfaces)
+        self.uiHdcDiskInterfaceComboBox.addItems(disk_interfaces)
+        self.uiHddDiskInterfaceComboBox.addItems(disk_interfaces)
 
         self.uiSymbolToolButton.clicked.connect(self._symbolBrowserSlot)
         self.uiInitrdToolButton.clicked.connect(self._initrdBrowserSlot)
@@ -188,23 +197,33 @@ class QemuVMConfigurationPage(QtWidgets.QWidget, Ui_QemuVMConfigPageWidget):
             self.uiHddDiskImageLineEdit.clear()
             self.uiHddDiskImageLineEdit.setText(path)
 
+    def _cdromImageBrowserSlot(self):
+        """
+        Slot to open a file browser and select a QEMU CD/DVD-ROM image.
+        """
+
+        path = self.getDiskImage(self, self._server)
+        if path:
+            self.uiCdromImageLineEdit.clear()
+            self.uiCdromImageLineEdit.setText(path)
+
     def _hdaDiskImageCreateSlot(self):
-        create_dialog = QemuImageWizard(self, self.uiNameLineEdit.text() + '-hda')
+        create_dialog = QemuImageWizard(self, self._server, self.uiNameLineEdit.text() + '-hda')
         if QtWidgets.QDialog.Accepted == create_dialog.exec_():
             self.uiHdaDiskImageLineEdit.setText(create_dialog.uiLocationLineEdit.text())
 
     def _hdbDiskImageCreateSlot(self):
-        create_dialog = QemuImageWizard(self, self.uiNameLineEdit.text() + '-hdb')
+        create_dialog = QemuImageWizard(self, self._server, self.uiNameLineEdit.text() + '-hdb')
         if QtWidgets.QDialog.Accepted == create_dialog.exec_():
             self.uiHdbDiskImageLineEdit.setText(create_dialog.uiLocationLineEdit.text())
 
     def _hdcDiskImageCreateSlot(self):
-        create_dialog = QemuImageWizard(self, self.uiNameLineEdit.text() + '-hdc')
+        create_dialog = QemuImageWizard(self, self._server, self.uiNameLineEdit.text() + '-hdc')
         if QtWidgets.QDialog.Accepted == create_dialog.exec_():
             self.uiHdcDiskImageLineEdit.setText(create_dialog.uiLocationLineEdit.text())
 
     def _hddDiskImageCreateSlot(self):
-        create_dialog = QemuImageWizard(self, self.uiNameLineEdit.text() + '-hdd')
+        create_dialog = QemuImageWizard(self, self._server, self.uiNameLineEdit.text() + '-hdd')
         if QtWidgets.QDialog.Accepted == create_dialog.exec_():
             self.uiHddDiskImageLineEdit.setText(create_dialog.uiLocationLineEdit.text())
 
@@ -245,6 +264,10 @@ class QemuVMConfigurationPage(QtWidgets.QWidget, Ui_QemuVMConfigPageWidget):
                     self.uiQemuListComboBox.addItem("{path} (v{version})".format(path=qemu["path"], version=qemu["version"]), qemu["path"])
                 else:
                     self.uiQemuListComboBox.addItem("{path}".format(path=qemu["path"]), qemu["path"])
+
+        if qemu_path and "/" not in qemu_path and "\\" not in qemu_path:
+            self.uiQemuListComboBox.addItem("{path}".format(path=qemu_path), qemu_path)
+
 
         index = self.uiQemuListComboBox.findData("{path}".format(path=qemu_path))
         if index != -1:
@@ -306,6 +329,11 @@ class QemuVMConfigurationPage(QtWidgets.QWidget, Ui_QemuVMConfigPageWidget):
             self.uiHdbDiskImageLineEdit.setText(settings["hdb_disk_image"])
             self.uiHdcDiskImageLineEdit.setText(settings["hdc_disk_image"])
             self.uiHddDiskImageLineEdit.setText(settings["hdd_disk_image"])
+            self.uiHdaDiskInterfaceComboBox.setCurrentIndex(self.uiHdaDiskInterfaceComboBox.findText(settings["hda_disk_interface"]))
+            self.uiHdbDiskInterfaceComboBox.setCurrentIndex(self.uiHdbDiskInterfaceComboBox.findText(settings["hdb_disk_interface"]))
+            self.uiHdcDiskInterfaceComboBox.setCurrentIndex(self.uiHdcDiskInterfaceComboBox.findText(settings["hdc_disk_interface"]))
+            self.uiHddDiskInterfaceComboBox.setCurrentIndex(self.uiHddDiskInterfaceComboBox.findText(settings["hdd_disk_interface"]))
+            self.uiCdromImageLineEdit.setText(settings["cdrom_image"])
             self.uiInitrdLineEdit.setText(settings["initrd"])
             self.uiKernelImageLineEdit.setText(settings["kernel_image"])
         else:
@@ -313,12 +341,8 @@ class QemuVMConfigurationPage(QtWidgets.QWidget, Ui_QemuVMConfigPageWidget):
             self.uiNameLineEdit.hide()
             self.uiConsolePortLabel.hide()
             self.uiConsolePortSpinBox.hide()
-            self.uiHdaDiskImageLabel.hide()
-            self.uiHdaDiskImageLineEdit.hide()
-            self.uiHdaDiskImageToolButton.hide()
-            self.uiHdbDiskImageLabel.hide()
-            self.uiHdbDiskImageLineEdit.hide()
-            self.uiHdbDiskImageToolButton.hide()
+            self.uiHddTab.hide()
+            self.uiCdromTab.hide()
             self.uiInitrdLabel.hide()
             self.uiInitrdLineEdit.hide()
             self.uiInitrdToolButton.hide()
@@ -353,6 +377,10 @@ class QemuVMConfigurationPage(QtWidgets.QWidget, Ui_QemuVMConfigPageWidget):
             self.uiFirstPortNameLabel.hide()
             self.uiFirstPortNameLineEdit.hide()
 
+        index = self.uiBootPriorityComboBox.findData(settings["boot_priority"])
+        if index != -1:
+            self.uiBootPriorityComboBox.setCurrentIndex(index)
+
         index = self.uiConsoleTypeComboBox.findText(settings["console_type"])
         if index != -1:
             self.uiConsoleTypeComboBox.setCurrentIndex(index)
@@ -373,6 +401,8 @@ class QemuVMConfigurationPage(QtWidgets.QWidget, Ui_QemuVMConfigPageWidget):
         index = self.uiAdapterTypesComboBox.findData(settings["adapter_type"])
         if index != -1:
             self.uiAdapterTypesComboBox.setCurrentIndex(index)
+
+        self.uiCPUSpinBox.setValue(settings["cpus"])
         self.uiRamSpinBox.setValue(settings["ram"])
 
         if settings["cpu_throttling"]:
@@ -411,6 +441,11 @@ class QemuVMConfigurationPage(QtWidgets.QWidget, Ui_QemuVMConfigPageWidget):
             settings["hdb_disk_image"] = self.uiHdbDiskImageLineEdit.text().strip()
             settings["hdc_disk_image"] = self.uiHdcDiskImageLineEdit.text().strip()
             settings["hdd_disk_image"] = self.uiHddDiskImageLineEdit.text().strip()
+            settings["hda_disk_interface"] = self.uiHdaDiskInterfaceComboBox.currentText()
+            settings["hdb_disk_interface"] = self.uiHdbDiskInterfaceComboBox.currentText()
+            settings["hdc_disk_interface"] = self.uiHdcDiskInterfaceComboBox.currentText()
+            settings["hdd_disk_interface"] = self.uiHddDiskInterfaceComboBox.currentText()
+            settings["cdrom_image"] = self.uiCdromImageLineEdit.text().strip()
             settings["initrd"] = self.uiInitrdLineEdit.text().strip()
             settings["kernel_image"] = self.uiKernelImageLineEdit.text().strip()
 
@@ -434,6 +469,11 @@ class QemuVMConfigurationPage(QtWidgets.QWidget, Ui_QemuVMConfigPageWidget):
             del settings["hdb_disk_image"]
             del settings["hdc_disk_image"]
             del settings["hdd_disk_image"]
+            del settings["hda_disk_interface"]
+            del settings["hdb_disk_interface"]
+            del settings["hdc_disk_interface"]
+            del settings["hdd_disk_interface"]
+            del settings["cdrom_image"]
             del settings["initrd"]
             del settings["kernel_image"]
             del settings["mac_address"]
@@ -465,6 +505,7 @@ class QemuVMConfigurationPage(QtWidgets.QWidget, Ui_QemuVMConfigPageWidget):
             qemu_path = self.uiQemuListComboBox.itemData(self.uiQemuListComboBox.currentIndex())
             settings["qemu_path"] = qemu_path
 
+        settings["boot_priority"] = self.uiBootPriorityComboBox.itemData(self.uiBootPriorityComboBox.currentIndex())
         settings["console_type"] = self.uiConsoleTypeComboBox.currentText().lower()
         settings["adapter_type"] = self.uiAdapterTypesComboBox.itemData(self.uiAdapterTypesComboBox.currentIndex())
         settings["kernel_command_line"] = self.uiKernelCommandLineEdit.text()
@@ -481,6 +522,7 @@ class QemuVMConfigurationPage(QtWidgets.QWidget, Ui_QemuVMConfigPageWidget):
         settings["adapters"] = adapters
         settings["legacy_networking"] = self.uiLegacyNetworkingCheckBox.isChecked()
         settings["acpi_shutdown"] = self.uiACPIShutdownCheckBox.isChecked()
+        settings["cpus"] = self.uiCPUSpinBox.value()
         settings["ram"] = self.uiRamSpinBox.value()
         if self.uiActivateCPUThrottlingCheckBox.isChecked():
             settings["cpu_throttling"] = self.uiCPUThrottlingSpinBox.value()

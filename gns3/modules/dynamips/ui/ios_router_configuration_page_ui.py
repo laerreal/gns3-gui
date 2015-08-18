@@ -11,7 +11,7 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 class Ui_iosRouterConfigPageWidget(object):
     def setupUi(self, iosRouterConfigPageWidget):
         iosRouterConfigPageWidget.setObjectName("iosRouterConfigPageWidget")
-        iosRouterConfigPageWidget.resize(476, 506)
+        iosRouterConfigPageWidget.resize(476, 510)
         self.vboxlayout = QtWidgets.QVBoxLayout(iosRouterConfigPageWidget)
         self.vboxlayout.setObjectName("vboxlayout")
         self.uiTabWidget = QtWidgets.QTabWidget(iosRouterConfigPageWidget)

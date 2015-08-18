@@ -20,33 +20,14 @@ import os
 import json
 import shutil
 import copy
-from pkg_resources import parse_version
-
 
 from .qt import QtCore
 from .version import __version__
+from .utils import parse_version
+
 
 import logging
 log = logging.getLogger(__name__)
-
-
-class PeriodicCheckConfig(QtCore.QThread):
-
-    """
-    Timer for checking if the configuration file change
-    on disk.
-    """
-
-    def __init__(self, parent):
-        super().__init__(parent)
-        self._parent = parent
-
-    def run(self):
-        self._timer = QtCore.QTimer()
-        self._timer.timeout.connect(self._parent._checkConfigChanged)
-        self._timer.setInterval(1000)  #  milliseconds
-        self._timer.start()
-        self.exec_()
 
 
 class LocalConfig(QtCore.QObject):
@@ -109,9 +90,6 @@ class LocalConfig(QtCore.QObject):
         self._migrateOldConfig()
         self._writeConfig()
 
-        self._check_thread = PeriodicCheckConfig(self)
-        self._check_thread.start()
-
     @staticmethod
     def configDirectory():
         """
@@ -146,7 +124,7 @@ class LocalConfig(QtCore.QObject):
         Migrate pre 1.4 config
         """
 
-        if "version" not in self._settings or parse_version(self._settings["version"]) < parse_version("1.4.0"):
+        if "version" not in self._settings or parse_version(self._settings["version"]) < parse_version("1.4.0alpha1"):
 
             servers = self._settings.get("Servers", {})
 
@@ -203,11 +181,15 @@ class LocalConfig(QtCore.QObject):
         except (ValueError, OSError) as e:
             log.error("Could not write the config file {}: {}".format(self._config_file, e))
 
-    def _checkConfigChanged(self):
-        if self._last_config_changed and self._last_config_changed < os.stat(self._config_file).st_mtime:
-            log.info("Client config has changed, reloading it...")
-            self._readConfig(self._config_file)
-            self.config_changed_signal.emit()
+    def checkConfigChanged(self):
+
+        try:
+            if self._last_config_changed and self._last_config_changed < os.stat(self._config_file).st_mtime:
+                log.info("Client config has changed, reloading it...")
+                self._readConfig(self._config_file)
+                self.config_changed_signal.emit()
+        except OSError as e:
+            log.error("Error when checking for changes {}: {}".format(self._config_file, str(e)))
 
     def configFilePath(self):
         """
@@ -276,6 +258,7 @@ class LocalConfig(QtCore.QObject):
         settings = _copySettings(settings, default_settings)
 
         self._settings[section] = settings
+
         return copy.deepcopy(settings)
 
     def saveSectionSettings(self, section, settings):

@@ -55,7 +55,6 @@ class Servers():
         self._local_server = None
         self._vm_server = None
         self._remote_servers = {}
-        self._cloud_servers = {}
         self._local_server_path = ""
         self._local_server_auto_start = True
         self._local_server_allow_console_from_anywhere = False
@@ -157,11 +156,12 @@ class Servers():
             local_server_settings["ubridge_path"] = self._findUbridge(self)
 
         for remote_server in self._settings["remote_servers"]:
-            self._addRemoteServer(remote_server.get("protocol", "http"),
-                                  remote_server["host"],
-                                  remote_server["port"],
+            self._addRemoteServer(protocol=remote_server.get("protocol", "http"),
+                                  host=remote_server["host"],
+                                  port=remote_server["port"],
                                   ram_limit=remote_server.get("ram_limit", 0),
                                   user=remote_server.get("user", None),
+                                  password=remote_server.get("password", None),
                                   ssh_key=remote_server.get("ssh_key", None),
                                   ssh_port=remote_server.get("ssh_port", None),
                                   accept_insecure_certificate=remote_server.get("accept_insecure_certificate", False))
@@ -172,6 +172,15 @@ class Servers():
             #WARNING: This operation should be a the end of the method otherwise you save a partial config
             self._saveSettings()
 
+        #For 1.3 compatibity old LocalServer section
+        local_server = LocalConfig.instance().loadSectionSettings("LocalServer", {})
+        if "auth" in local_server:
+            local_server["auth"] = local_server_settings["auth"]
+            local_server["user"] = local_server_settings["user"]
+            local_server["password"] = local_server_settings["password"]
+            LocalConfig.instance().saveSectionSettings("LocalServer", local_server)
+
+
     def _saveSettings(self):
         """
         Saves the server settings to a persistent settings file.
@@ -180,7 +189,9 @@ class Servers():
         # save the remote servers
         self._settings["remote_servers"] = []
         for server in self._remote_servers.values():
-            self._settings["remote_servers"].append(server.settings())
+            settings = server.settings()
+            settings["url"] = server.url()
+            self._settings["remote_servers"].append(settings)
 
         # save the settings
         LocalConfig.instance().saveSectionSettings("Servers", self._settings)
@@ -491,7 +502,7 @@ class Servers():
 
         return self._vm_server
 
-    def _addRemoteServer(self, protocol, host, port, ram_limit=0, user=None, ssh_port=None, ssh_key=None, accept_insecure_certificate=False):
+    def _addRemoteServer(self, protocol="http", host="localhost", port=8000, ram_limit=0, user=None, password=None, ssh_port=None, ssh_key=None, accept_insecure_certificate=False, id=None):
         """
         Adds a new remote server.
 
@@ -500,6 +511,7 @@ class Servers():
         :param port: port of the server (integer)
         :param ram_limit: maximum RAM to be used (integer)
         :param user: user login or None
+        :param password: user password or None
         :param ssh_port: ssh port or None
         :param ssh_key: ssh key
         :param accept_insecure_certificate: Accept invalid SSL certificate
@@ -512,6 +524,7 @@ class Servers():
                   "ram_limit": ram_limit,
                   "protocol": protocol,
                   "user": user,
+                  "password": password,
                   "ssh_port": ssh_port,
                   "ssh_key": ssh_key}
         if accept_insecure_certificate:
@@ -542,7 +555,10 @@ class Servers():
                 return server
 
         settings['user'] = user
-        return self._addRemoteServer(protocol, host, port, **settings)
+        settings['protocol'] = protocol
+        settings['host'] = host
+        settings['port'] = port
+        return self._addRemoteServer(**settings)
 
     def getServerFromString(self, server_name):
         """
@@ -670,6 +686,16 @@ class Servers():
         for server in self._remote_servers.values():
             if server.connected():
                 server.close()
+
+    def isNonLocalServerConfigured(self):
+        """
+        :returns: True if GNS3 VM or a remote server is configured
+        """
+        if self._vm_server is not None:
+            return True
+        if len(self._remote_servers) > 0:
+            return True
+        return False
 
     @staticmethod
     def instance():

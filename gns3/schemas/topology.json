@@ -50,6 +50,7 @@
                 "x": { "type": "number" },
                 "y": {"type": "number" },
                 "z": { "type": "number" },
+                "rotation": {"type": "number"},
                 "color": { "$ref": "#/definitions/color" },
                 "border_width": { "type": "number" },
                 "border_color": { "$ref": "#/definitions/color" },
@@ -84,6 +85,7 @@
                 "x": { "type": "number" },
                 "y": {"type": "number" },
                 "z": { "type": "number" },
+                "rotation": {"type": "number"},
                 "color": { "$ref": "#/definitions/color" },
                 "border_color": { "$ref": "#/definitions/color" },
                 "border_transparency": {"type": "integer" },
@@ -119,7 +121,7 @@
             "properties": {
                 "color": { "$ref": "#/definitions/color" },
                 "font": { "$ref": "#/definitions/mandatory_string" },
-                "text": { "$ref": "#/definitions/mandatory_string" },
+                "text": { "type": "string" },
                 "x": { "type": "number" },
                 "y": {"type": "number" },
                 "z": { "type": "number" },
@@ -401,10 +403,24 @@
                 "hdb_disk_image": { "type": "string" },
                 "hdc_disk_image": { "type": "string" },
                 "hdd_disk_image": { "type": "string" },
+                "hda_disk_interface": {
+                    "enum": ["ide", "scsi", "sd", "mtd", "floppy", "pflash", "virtio"]
+                },
+                "hdb_disk_interface": {
+                    "enum": ["ide", "scsi", "sd", "mtd", "floppy", "pflash", "virtio"]
+                },
+                "hdc_disk_interface": {
+                    "enum": ["ide", "scsi", "sd", "mtd", "floppy", "pflash", "virtio"]
+                },
+                "hdd_disk_interface": {
+                    "enum": ["ide", "scsi", "sd", "mtd", "floppy", "pflash", "virtio"]
+                },
+                "cdrom_image": { "type": "string" },
                 "hda_disk_image_md5sum": { "$ref": "#/definitions/md5" },
                 "hdb_disk_image_md5sum": { "$ref": "#/definitions/md5" },
                 "hdc_disk_image_md5sum": { "$ref": "#/definitions/md5" },
                 "hdd_disk_image_md5sum": { "$ref": "#/definitions/md5" },
+                "cdrom_image_md5sum": { "$ref": "#/definitions/md5" },
                 "initrd": { "type": "string" },
                 "initrd_md5sum": { "$ref": "#/definitions/md5" },
                 "kernel_image": { "type": "string"},
@@ -418,7 +434,8 @@
                 },
                 "qemu_path": { "type": "string" },
                 "platform": { "type": "string" },
-                "ram": {"type": "integer", "minimum": 1}
+                "ram": {"type": "integer", "minimum": 1},
+                "cpus": {"type": "integer", "minimum": 1,  "maximum": 255}
             },
             "required": [
                 "name",
@@ -455,14 +472,9 @@
                 }
             },
             "required": [
-                "adapter_type",
-                "adapters",
                 "console",
-                "enable_remote_console",
-                "headless",
                 "name",
                 "ram",
-                "use_any_adapter",
                 "vmname"
             ],
             "additionalProperties": false
@@ -672,7 +684,6 @@
     },
     "required": [
         "name",
-        "resources_type",
         "topology",
         "type"
     ],

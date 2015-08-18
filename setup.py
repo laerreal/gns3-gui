@@ -53,11 +53,13 @@ setup(
         "paramiko>=1.15.1",
         "gns3-converter>=1.2.3",
         "raven>=5.2.0",
-        "rsa>=3.1.4"
+        "rsa>=3.1.4",
+        "psutil>=2.2.1"
     ],
     entry_points={
         "gui_scripts": [
             "gns3 = gns3.main:main",
+            "gns3-iouvm-converter = gns3.iouvm_converter:main"
         ]
     },
     packages=find_packages(".", exclude=["docs", "tests"]),

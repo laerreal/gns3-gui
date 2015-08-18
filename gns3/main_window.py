@@ -27,12 +27,12 @@ import shutil
 import json
 import glob
 import logging
+import subprocess
 
 from .local_config import LocalConfig
 from .modules import MODULES
 from .modules.module_error import ModuleError
 from .modules.vpcs import VPCS
-from .modules.qemu.dialogs.qemu_image_wizard import QemuImageWizard
 from .qt import QtGui, QtCore, QtWidgets, QtSvg
 from .servers import Servers
 from .gns3_vm import GNS3VM
@@ -102,6 +102,9 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self._start_time = time.time()
         local_config = LocalConfig.instance()
         local_config.config_changed_signal.connect(self._localConfigChangedSlot)
+        self._local_config_timer = QtCore.QTimer(self)
+        self._local_config_timer.timeout.connect(local_config.checkConfigChanged)
+        self._local_config_timer.start(1000)  # milliseconds
 
         self._uiNewsDockWidget = None
         if not checkLicence():
@@ -113,8 +116,8 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 pass
 
         # restore the geometry and state of the main window.
-        self.restoreGeometry(QtCore.QByteArray().fromBase64(self._settings["geometry"]))
-        self.restoreState(QtCore.QByteArray().fromBase64(self._settings["state"]))
+        self.restoreGeometry(QtCore.QByteArray().fromBase64(self._settings["geometry"].encode()))
+        self.restoreState(QtCore.QByteArray().fromBase64(self._settings["state"].encode()))
 
         # populate the view -> docks menu
         self.uiDocksMenu.addAction(self.uiTopologySummaryDockWidget.toggleViewAction())
@@ -232,7 +235,6 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
 
         # tools menu connections
         self.uiVPCSAction.triggered.connect(self._vpcsActionSlot)
-        self.uiQemuImgWizardAction.triggered.connect(self._qemuImgWizardActionSlot)
 
         # annotate menu connections
         self.uiAddNoteAction.triggered.connect(self._addNoteActionSlot)
@@ -248,6 +250,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.uiLabInstructionsAction.triggered.connect(self._labInstructionsActionSlot)
         self.uiAboutQtAction.triggered.connect(self._aboutQtActionSlot)
         self.uiAboutAction.triggered.connect(self._aboutActionSlot)
+        self.uiIOUVMConverterAction.triggered.connect(self._IOUVMConverterActionSlot)
 
         # browsers tool bar connections
         self.uiBrowseRoutersAction.triggered.connect(self._browseRoutersActionSlot)
@@ -344,9 +347,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.uiGraphicsView.reset()
         # create the destination directory for project files
         try:
-            os.makedirs(new_project_settings["project_files_dir"])
-        except FileExistsError:
-            pass
+            os.makedirs(new_project_settings["project_files_dir"], exist_ok=True)
         except OSError as e:
             QtWidgets.QMessageBox.critical(self, "New project", "Could not create project files directory {}: {}".format(new_project_settings["project_files_dir"], e))
             self._createTemporaryProject()
@@ -359,7 +360,6 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
 
         self._project.setName(new_project_settings["project_name"])
         self._project.setTopologyFile(new_project_settings["project_path"])
-        self._project.setType(new_project_settings["project_type"])
         self.saveProject(new_project_settings["project_path"])
         self.project_new_signal.emit(self._project.topologyFile())
 
@@ -382,6 +382,16 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 self._createNewProject(new_project_settings)
             else:
                 self._createTemporaryProject()
+
+    def _IOUVMConverterActionSlot(self):
+        command = shutil.which("gns3-iouvm-converter")
+        if command is None:
+            QtWidgets.QMessageBox.critical(self, "GNS3 IOU VM Converter", "gns3-iouvm-converter not found")
+            return
+        try:
+            subprocess.Popen([command])
+        except (OSError, subprocess.SubprocessError) as e:
+            QtWidgets.QMessageBox.critical(self, "GNS3 IOU VM Converter", "Error when running gns3-iouvm-converter {}".format(e))
 
     def openProjectActionSlot(self):
         """
@@ -725,9 +735,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
 
         try:
             working_dir = os.path.join(self._project.filesDir(), "project-files", "vpcs", "multi-host")
-            os.makedirs(working_dir)
-        except FileExistsError:
-            pass
+            os.makedirs(working_dir, exist_ok=True)
         except OSError as e:
             QtWidgets.QMessageBox.critical(self, "VPCS", "Could not create the VPCS working directory: {}".format(e))
             return
@@ -743,10 +751,6 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             telnetConsole("VPCS multi-host", "127.0.0.1", vpcs_port)
         except (OSError, ValueError) as e:
             QtWidgets.QMessageBox.critical(self, "Console", "Cannot start console application: {}".format(e))
-
-    def _qemuImgWizardActionSlot(self):
-        img_wizard = QemuImageWizard(self)
-        img_wizard.exec_()
 
     def _addNoteActionSlot(self):
         """
@@ -837,6 +841,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         """
         Slot to open the setup wizard.
         """
+
         with Progress.instance().context(min_duration=0):
             setup_wizard = SetupWizard(self)
             setup_wizard.show()
@@ -896,7 +901,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         dialog.show()
         dialog.exec_()
 
-    def _showNodesDockWidget(self, title, category=None):
+    def _showNodesDockWidget(self, title, category=Node.routers):
         """
         Makes the NodesDockWidget appear with the appropriate title and the devices
         from the specified category listed.
@@ -913,7 +918,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             self.uiNodesDockWidget.setWindowTitle(title)
             self.uiNodesDockWidget.setVisible(True)
             self.uiNodesView.clear()
-            self.uiNodesView.populateNodesView(category, self._project.type())
+            self.uiNodesView.populateNodesView(category)
 
     def _localConfigChangedSlot(self):
         """
@@ -1037,7 +1042,6 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         VPCS.instance().stopMultiHostVPCS()
 
         GNS3VM.instance().shutdown()
-
         self._settings["geometry"] = bytes(self.saveGeometry().toBase64()).decode()
         self._settings["state"] = bytes(self.saveState().toBase64()).decode()
         self.setSettings(self._settings)
@@ -1105,8 +1109,19 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         # FIXME: do something with getting started dialog
         # self._gettingStartedActionSlot(auto=True)
 
-        # start and connect to the local server
         servers = Servers.instance()
+
+        # start the GNS3 VM
+        gns3_vm = GNS3VM.instance()
+        if gns3_vm.autoStart() and not gns3_vm.isRunning():
+            servers.initVMServer()
+            worker = WaitForVMWorker()
+            progress_dialog = ProgressDialog(worker, "GNS3 VM", "Starting the GNS3 VM...", "Cancel", busy=True, parent=self)
+            progress_dialog.show()
+            if progress_dialog.exec_():
+                gns3_vm.adjustLocalServerIP()
+
+        # start and connect to the local server
         server = servers.localServer()
         if servers.localServerAutoStart():
             if server.isLocalServerRunning():
@@ -1132,18 +1147,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 setup_wizard.show()
                 setup_wizard.exec_()
 
-        # start the GNS3 VM
-        gns3_vm = GNS3VM.instance()
-        if gns3_vm.autoStart() and not gns3_vm.isRunning():
-            servers.initVMServer()
-            worker = WaitForVMWorker()
-            progress_dialog = ProgressDialog(worker, "GNS3 VM", "Starting the GNS3 VM...", "Cancel", busy=True, parent=self)
-            progress_dialog.show()
-            if progress_dialog.exec_():
-                gns3_vm.adjustLocalServerIP()
-
         self._createTemporaryProject()
-
         if self._project_from_cmdline:
             time.sleep(0.5)  # give some time to the server to initialize
             self._loadPath(self._project_from_cmdline)
@@ -1219,9 +1223,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
 
         # create the destination directory for project files
         try:
-            os.makedirs(project_dir)
-        except FileExistsError:
-            pass
+            os.makedirs(project_dir, exist_ok=True)
         except OSError as e:
             QtWidgets.QMessageBox.critical(self, "Save project", "Could not create project directory {}: {}".format(project_dir, e))
             return
@@ -1384,7 +1386,6 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self._project = Project()
         self._project.setTemporary(True)
         self._project.setName("unsaved")
-        self._project.setType("local")
         self.uiGraphicsView.reset()
         self._setCurrentFile()
 

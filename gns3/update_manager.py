@@ -22,7 +22,7 @@ import shutil
 import json
 
 
-from pkg_resources import parse_version
+from gns3.utils import parse_version
 
 from gns3 import version
 from gns3.qt import QtNetwork, QtCore, QtWidgets, QtGui
@@ -41,15 +41,19 @@ class UpdateManager(QtCore.QObject):
 
         super().__init__()
 
-        self._update_directory = os.path.join(os.path.dirname(sys.executable), 'updates')
-        self._package_directory = os.path.join(os.path.dirname(sys.executable), 'site-packages')
+        if sys.platform.startswith("win"):
+            root = os.path.join(os.path.expandvars("%APPDATA%"), "GNS3")
+        else:
+            root = os.path.dirname(sys.executable)
+        self._update_directory = os.path.join(root, 'updates')
+        self._package_directory = os.path.join(root, 'site-packages')
         self._network_manager = None
 
     def isDevVersion(self):
         """
         :returns: Boolean. True if it's a dev build. False it's a release build
         """
-        if version.__version_info__[3] < 0:
+        if version.__version_info__[3] != 0:
             return True
         return False
 
@@ -64,7 +68,7 @@ class UpdateManager(QtCore.QObject):
         if self._network_manager is None:
             self._network_manager = QtNetwork.QNetworkAccessManager()
         request = QtNetwork.QNetworkRequest(QtCore.QUrl(url))
-        request.setRawHeader('User-Agent', 'GNS3 Check For Update')
+        request.setRawHeader(b'User-Agent', b'GNS3 Check For Update')
         request.setAttribute(QtNetwork.QNetworkRequest.User, user_attribute)
         reply = self._network_manager.get(request)
         reply.finished.connect(finished_slot)
@@ -122,14 +126,17 @@ class UpdateManager(QtCore.QObject):
             log.warning("Invalid answer from the PyPi server")
 
         last_version = self._getLastMinorVersionFromPyPiReply(body)
-        if last_version != version.__version__:
+        if parse_version(last_version) > parse_version(version.__version__):
             reply = QtWidgets.QMessageBox.question(self._parent,
                                                    "Check For Update",
                                                    "Newer GNS3 version {} is available, do you want to to download it in background and install it at next application launch?".format(last_version),
                                                    QtWidgets.QMessageBox.Yes,
                                                    QtWidgets.QMessageBox.No)
             if reply == QtWidgets.QMessageBox.Yes:
-                self.downloadUpdates(last_version)
+                try:
+                    self.downloadUpdates(last_version)
+                except OSError as e:
+                    QtWidgets.QMessageBox.critical(self._parent, "Check For Update", "Cannot download update: {}".format(e))
         else:
             self._get('http://update.gns3.net', self._gns3UpdateReplySlot)
 
@@ -143,7 +150,7 @@ class UpdateManager(QtCore.QObject):
         current_version = parse_version(version.__version__)
         for release in sorted(body['releases'].keys(), reverse=True):
             release_version = parse_version(release)
-            if release_version[2] == '*final' or release_version[3] == '*final':
+            if release_version[-1:][0] == "final":
                 if self.isDevVersion():
                     continue
             else:
@@ -161,6 +168,7 @@ class UpdateManager(QtCore.QObject):
         """
         log.debug('Download updates to %s', self._package_directory)
         os.makedirs(self._update_directory, exist_ok=True)
+        self._filesToDownload = 2
         url = 'https://pypi.python.org/packages/source/g/gns3-server/gns3-server-{}.tar.gz'.format(version)
         self._get(url, self._fileDownloadedSlot, user_attribute=os.path.join(self._update_directory, 'gns3-server.tar.gz'))
         url = 'https://pypi.python.org/packages/source/g/gns3-gui/gns3-gui-{}.tar.gz'.format(version)
@@ -170,14 +178,18 @@ class UpdateManager(QtCore.QObject):
         network_reply = self.sender()
         file_path = network_reply.request().attribute(QtNetwork.QNetworkRequest.User)
         if network_reply.error() == QtNetwork.QNetworkReply.NoError:
-            redirect = network_reply.attribute(QtNetwork.QNetworkRequest.RedirectionTargetAttribute)
-            if redirect:
-                log.debug('Redirect download to %s', redirect.toDisplayString())
-                self._downloadFile(redirect.toDisplayString(), file_path)
-            else:
-                log.debug('File downloaded %s', file_path)
-                with open(file_path, 'wb+') as f:
-                    f.write(network_reply.readAll())
+            log.debug('File downloaded %s', file_path)
+            with open(file_path, 'wb+') as f:
+                f.write(network_reply.readAll())
+            self._filesToDownload -= 1
+            if self._filesToDownload == 0:
+                reply = QtWidgets.QMessageBox.question(self._parent,
+                                                   "Check For Update",
+                                                   "GNS3 upgrade downloaded do you want to quit the application?",
+                                                   QtWidgets.QMessageBox.Yes,
+                                                   QtWidgets.QMessageBox.No)
+                if reply == QtWidgets.QMessageBox.Yes:
+                    app = QtWidgets.QApplication.instance().closeAllWindows()
         else:
             log.debug('Error when downloading %s', file_path)
         network_reply.deleteLater()

@@ -20,6 +20,10 @@ import pytest
 
 from gns3.servers import Servers
 
+@pytest.fixture(autouse=True)
+def reset_server():
+    Servers._instance = None
+
 
 def test_loadSettings_EmptySettings(local_config, tmpdir):
 
@@ -61,6 +65,33 @@ def test_loadSettings(tmpdir, local_config):
     servers = Servers.instance()
 
     assert servers.localServerSettings()["password"] == "hello"
+
+
+def test_loadSettingsWith13LocalServerSetting(tmpdir, local_config):
+    with open(str(tmpdir / "test.cfg"), "w+") as f:
+        json.dump({
+            "Servers": {
+                "local_server": {
+                    "auth": True,
+                    "user": "world",
+                    "password": "hello"
+                }
+            },
+            "LocalServer": {
+                "auth": False
+            },
+            "version": "1.4"
+        }, f)
+
+    local_config.setConfigFilePath(str(tmpdir / "test.cfg"))
+    Servers._instance = None
+    servers = Servers.instance()
+
+    local_server = local_config.loadSectionSettings("LocalServer", {})
+
+    assert local_server["auth"] == True
+    assert local_server["user"] == "world"
+    assert local_server["password"] == "hello"
 
 
 def test_getRemoteServer():
@@ -111,3 +142,17 @@ def test_getServerFromString_with_ssh():
     assert server.user() == "root"
     assert server.ssh_port() == 22
     assert server.ssh_key() == "/tmp/test.ssh"
+
+
+def test_is_non_local_server_configured():
+
+    servers = Servers.instance()
+
+    assert servers.isNonLocalServerConfigured() is False
+    servers._vm_server = object()
+    assert servers.isNonLocalServerConfigured() is True
+    servers._vm_server = None
+    assert servers.isNonLocalServerConfigured() is False
+
+    servers._addRemoteServer("ssh", "127.0.0.1", "4000", user="root", ssh_port=22, ssh_key="/tmp/test.ssh")
+    assert servers.isNonLocalServerConfigured() is True

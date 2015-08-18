@@ -20,7 +20,7 @@ import unittest.mock
 
 from gns3.qt import QtNetwork, FakeQtSignal
 from gns3.http_client import HTTPClient
-from gns3.version import __version__
+from gns3.version import __version__, __version_info__
 
 
 @pytest.fixture
@@ -62,12 +62,12 @@ def test_get_connected(http_client, request, network_manager, response):
 
     http_client.get("/test", callback)
     request.assert_call_with("/test")
-    request.setRawHeader.assert_any_call("Content-Type", "application/json")
-    request.setRawHeader.assert_any_call("User-Agent", "GNS3 QT Client v{version}".format(version=__version__))
+    request.setRawHeader.assert_any_call(b"Content-Type", b"application/json")
+    request.setRawHeader.assert_any_call(b"User-Agent", "GNS3 QT Client v{version}".format(version=__version__).encode())
     assert network_manager.sendCustomRequest.called
     args, kwargs = network_manager.sendCustomRequest.call_args
     assert args[0] == request
-    assert args[1] == "GET"
+    assert args[1] == b"GET"
 
     # Trigger the completion
     response.finished.emit()
@@ -84,9 +84,9 @@ def test_get_connected_auth(http_client, request, network_manager, response):
 
     http_client.get("/test", callback)
     request.assert_call_with("/test")
-    request.setRawHeader.assert_any_call("Content-Type", "application/json")
-    request.setRawHeader.assert_any_call("Authorization", "Basic Z25zMzozc25n")
-    request.setRawHeader.assert_any_call("User-Agent", "GNS3 QT Client v{version}".format(version=__version__))
+    request.setRawHeader.assert_any_call(b"Content-Type", b"application/json")
+    request.setRawHeader.assert_any_call(b"Authorization", b"Basic Z25zMzozc25n")
+    request.setRawHeader.assert_any_call(b"User-Agent", "GNS3 QT Client v{version}".format(version=__version__).encode())
     network_manager.get.assert_call_with(request)
 
     # Trigger the completion
@@ -104,7 +104,7 @@ def test_post_not_connected(http_client, request, network_manager, response):
 
     args, kwargs = network_manager.sendCustomRequest.call_args
     assert args[0] == request
-    assert args[1] == "GET"
+    assert args[1] == b"GET"
 
     response.header.return_value = "application/json"
     response.readAll.return_value = ("{\"version\": \"" + __version__ + "\", \"local\": true}").encode()
@@ -117,7 +117,7 @@ def test_post_not_connected(http_client, request, network_manager, response):
 
     args, kwargs = network_manager.sendCustomRequest.call_args
     assert args[0] == request
-    assert args[1] == "POST"
+    assert args[1] == b"POST"
 
     assert http_client._connected
     assert callback.called
@@ -137,7 +137,7 @@ def test_post_not_connected_connection_failed(http_client, request, network_mana
 
     args, kwargs = network_manager.sendCustomRequest.call_args
     assert args[0] == request
-    assert args[1] == "GET"
+    assert args[1] == b"GET"
 
     # Trigger the completion of /version
     response.finished.emit()
@@ -223,3 +223,81 @@ def test_dump(http_client):
         'protocol': 'http',
         'ram_limit': 0,
         'vm': False}
+
+
+def test_callbackConnect_version_ok(http_client):
+
+    params = {
+        "local": True,
+        "version": __version__
+    }
+    http_client._callbackConnect("GET", "/version", None, {}, {}, params)
+    assert http_client._connected
+
+
+def test_callbackConnect_version_non_local(http_client):
+
+    params = {
+        "local": False,
+        "version": __version__
+    }
+    mock = unittest.mock.MagicMock()
+    http_client._callbackConnect("GET", "/version", mock, {}, {}, params)
+    assert http_client._connected is False
+    mock.assert_called_with({"message": "Running server is not a GNS3 local server (not started with --local)"}, error=True, server=http_client)
+
+
+def test_callbackConnect_version_non_local_remote_server(http_client):
+
+    params = {
+        "local": False,
+        "version": __version__
+    }
+    mock = unittest.mock.MagicMock()
+    http_client._local = False
+    http_client._callbackConnect("GET", "/version", mock, {}, {}, params)
+    assert http_client._connected is True
+
+
+def test_callbackConnect_major_version_invalid(http_client):
+
+    params = {
+        "local": True,
+        "version": "1.2.3"
+    }
+    mock = unittest.mock.MagicMock()
+    http_client._callbackConnect("GET", "/version", mock, {}, {}, params)
+    assert http_client._connected is False
+    mock.assert_called_with({"message": "Client version {} differs with server version 1.2.3".format(__version__)}, error=True, server=http_client)
+
+
+def test_callbackConnect_minor_version_invalid(http_client):
+
+    new_version = "{}.{}.{}".format(__version_info__[0], __version_info__[1], __version_info__[2] + 1)
+    params = {
+        "local": True,
+        "version": new_version
+    }
+    mock = unittest.mock.MagicMock()
+
+    #Stable release
+    if __version_info__[3] == 0:
+        http_client._callbackConnect("GET", "/version", mock, {}, {}, params)
+        assert http_client._connected is False
+        mock.assert_called_with({"message": "Client version {} differs with server version {}".format(__version__, new_version)}, error=True, server=http_client)
+    else:
+        http_client._callbackConnect("GET", "/version", mock, {}, {}, params)
+        assert http_client._connected is True
+
+
+
+def test_callbackConnect_non_gns3_server(http_client):
+
+    params = {
+        "virus": True,
+    }
+    mock = unittest.mock.MagicMock()
+    http_client._callbackConnect("GET", "/version", mock, {}, {}, params)
+    assert http_client._connected is False
+    mock.assert_called_with({"message": "The remote server http://127.0.0.1:8000 is not a GNS3 server"}, error=True, server=http_client)
+

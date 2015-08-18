@@ -252,6 +252,11 @@ class Link(QtCore.QObject):
         :param node_id: node identifier
         :param port_id: port identifier
         """
+
+        # in very rare cases link is already deleted
+        if self is None:
+            return
+
         # check that the node is connected to this link as a source
         if node_id == self._source_node.id() and port_id == self._source_port.id():
             self._source_nio_active = True

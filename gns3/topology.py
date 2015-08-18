@@ -104,7 +104,6 @@ class Topology:
         self._topology = None
         self._initialized_nodes = []
         self._initialized_links = []
-        self._resources_type = "local"
         self._instances = []
         self._auto_start = False
         self._project = None
@@ -394,7 +393,6 @@ class Topology:
         self._images.clear()
         self._initialized_nodes.clear()
         self._initialized_links.clear()
-        self._resources_type = "local"
         self._instances = []
         log.info("Topology reset")
 
@@ -491,11 +489,8 @@ class Topology:
                     "type": "topology",
                     "topology": {},
                     "auto_start": False,
-                    "resources_type": self._project.type(),
                     "revision": TOPOLOGY_REVISION
                     }
-
-        self._resources_type = self._project.type()
 
         servers = {}
 
@@ -524,19 +519,6 @@ class Topology:
                 log.info("saving server {}".format(server.url))
                 topology_servers.append(server.dump())
 
-        # instances
-        if self._resources_type == "cloud":
-            topology_instances = topology["topology"]["instances"] = []
-            for i in self._instances:
-                log.info("saving cloud instance {}".format(i.name))
-                topology_instances.append({
-                    "name": i.name,
-                    "id": i.id,
-                    "size_id": i.size_id,
-                    "image_id": i.image_id,
-                    "private_key": i.private_key,
-                    "public_key": i.public_key
-                })
         if include_gui_data:
             self._dump_gui_settings(topology)
 
@@ -603,7 +585,6 @@ class Topology:
         if "project_id" in json_topology:
             self._project.setId(json_topology["project_id"])
         self._project.setName(json_topology.get("name", "unnamed"))
-        self._project.setType(json_topology.get("resources_type", "local"))
         self._project.setTopologyFile(path)
         self._load(json_topology)
 
@@ -666,9 +647,13 @@ class Topology:
                     host = topology_server["host"]
                     port = topology_server["port"]
                     user = topology_server.get("user", None)
-                    if "cloud" in topology_server:
-                        del topology_server["cloud"]
-                    self._servers[topology_server["id"]] = server_manager.getRemoteServer(protocol, host, port, user, topology_server)
+
+                    topology_server.pop("cloud", False)
+                    topology_server.pop("vm", False)
+                    topology_server.pop("local", False)
+
+                    server_id = topology_server.pop("id")
+                    self._servers[server_id] = server_manager.getRemoteServer(protocol, host, port, user, topology_server)
 
         # nodes
         self._load_old_topology = False
@@ -769,8 +754,6 @@ class Topology:
 
                 view.scene().addItem(node_item)
                 main_window.uiTopologySummaryTreeWidget.addNode(node)
-
-        self._resources_type = topology.get("resources_type")
 
         # notes
         if "notes" in topology["topology"]:
@@ -922,14 +905,16 @@ class Topology:
         """
         Called when a link is successfuly created
         """
+
         self._initialized_links.append(link_id)
-        if (len(topology["topology"].get("links", [])) == len(self._initialized_links)):
+        if len(topology["topology"].get("links", [])) == len(self._initialized_links):
             self._autoStart(topology)
 
     def _autoStart(self, topology):
         """
         If everything is created auto start the topology
         """
+
         if "nodes" not in topology or ((len(topology["topology"].get("links", [])) == len(self._initialized_links)) and (len(topology["topology"]["nodes"]) == len(self._initialized_nodes))):
             log.info("Topology initialized")
             # Auto start
@@ -987,7 +972,3 @@ class Topology:
         if not hasattr(Topology, "_instance"):
             Topology._instance = Topology()
         return Topology._instance
-
-    @property
-    def resourcesType(self):
-        return self._resources_type

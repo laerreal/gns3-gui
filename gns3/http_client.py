@@ -28,6 +28,7 @@ from functools import partial
 from .version import __version__, __version_info__
 from .qt import QtCore, QtNetwork
 from .network_client import getNetworkUrl
+from .utils import parse_version
 
 import logging
 log = logging.getLogger(__name__)
@@ -198,14 +199,14 @@ class HTTPClient(QtCore.QObject):
         Called when a query upload progress
         """
         if HTTPClient._progress_callback:
-            HTTPClient._progress_callback.progress(query_id, sent, total)
+            HTTPClient._progress_callback.progress_signal.emit(query_id, sent, total)
 
     def notify_progress_download(self, query_id, sent, total):
         """
         Called when a query download progress
         """
         if HTTPClient._progress_callback:
-            HTTPClient._progress_callback.progress(query_id, sent, total)
+            HTTPClient._progress_callback.progress_signal.emit(query_id, sent, total)
 
     @classmethod
     def setProgressCallback(cls, progress_callback):
@@ -472,14 +473,18 @@ class HTTPClient(QtCore.QObject):
         if params["version"] != __version__:
             msg = "Client version {} differs with server version {}".format(__version__, params["version"])
             log.error(msg)
-            # Official release
+            # Stable release
             if __version_info__[3] == 0:
                 if callback is not None:
                     callback({"message": msg}, error=True, server=self)
                 return
-            else:
-                print(msg)
-                print("WARNING: Use a different client and server version can create bugs. Use it at your own risk.")
+            # We don't allow different major version to interact even with dev build
+            elif parse_version(__version__)[:2] != parse_version(params["version"])[:2]:
+                if callback is not None:
+                    callback({"message": msg}, error=True, server=self)
+                return
+            print(msg)
+            print("WARNING: Use a different client and server version can create bugs. Use it at your own risk.")
 
         if params["local"] != self.isLocal():
             if self.isLocal():
@@ -511,9 +516,9 @@ class HTTPClient(QtCore.QObject):
 
         if isinstance(body, dict):
             body = json.dumps(body)
-            request.setRawHeader("Content-Type", "application/json")
-            request.setRawHeader("Content-Length", str(len(body)))
-            data = QtCore.QByteArray(body)
+            request.setRawHeader(b"Content-Type", b"application/json")
+            request.setRawHeader(b"Content-Length", str(len(body)).encode())
+            data = QtCore.QByteArray(body.encode())
             body = QtCore.QBuffer(self)
             body.setData(data)
             body.open(QtCore.QIODevice.ReadOnly)
@@ -521,7 +526,7 @@ class HTTPClient(QtCore.QObject):
         elif isinstance(body, pathlib.Path):
             body = QtCore.QFile(str(body), self)
             body.open(QtCore.QFile.ReadOnly)
-            request.setRawHeader("Content-Type", "application/octet-stream")
+            request.setRawHeader(b"Content-Type", b"application/octet-stream")
             # QT is smart and will compute the Content-Lenght for us
             return body
         else:
@@ -535,7 +540,7 @@ class HTTPClient(QtCore.QObject):
             auth_string = "{}:{}".format(self._user, self._password)
             auth_string = base64.b64encode(auth_string.encode("utf-8"))
             auth_string = "Basic {}".format(auth_string.decode())
-            request.setRawHeader("Authorization", auth_string)
+            request.setRawHeader(b"Authorization", auth_string.encode())
         return request
 
     def executeHTTPQuery(self, method, path, callback, body, context={}, downloadProgressCallback=None, showProgress=True, ignoreErrors=False, progressText=None):
@@ -568,12 +573,12 @@ class HTTPClient(QtCore.QObject):
 
         request = self.addAuth(request)
 
-        request.setRawHeader("User-Agent", "GNS3 QT Client v{version}".format(version=__version__))
+        request.setRawHeader(b"User-Agent", "GNS3 QT Client v{version}".format(version=__version__).encode())
 
         # By default QT doesn't support GET with body even if it's in the RFC that's why we need to use sendCustomRequest
         body = self._addBodyToRequest(body, request)
 
-        response = self._network_manager.sendCustomRequest(request, method, body)
+        response = self._network_manager.sendCustomRequest(request, method.encode(), body)
 
         import copy
         context = copy.copy(context)
@@ -692,7 +697,14 @@ class HTTPClient(QtCore.QObject):
                     callback(params, server=self, context=context)
         # response.deleteLater()
         if status == 400:
-            raise HttpBadRequest(body)
+            try:
+                params = json.loads(body)
+                e = HttpBadRequest(body)
+                e.fingerprint = params["path"]
+            # If something goes wrong for a any reason just raise the bad request
+            except Exception:
+                e = HttpBadRequest(body)
+            raise e
 
     def RAMLimit(self):
         """

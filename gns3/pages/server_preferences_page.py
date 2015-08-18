@@ -130,10 +130,7 @@ class ServerPreferencesPage(QtWidgets.QWidget, Ui_ServerPreferencesPageWidget):
         else:
             self.uiVMListComboBox.clear()
             for vm in result:
-                if self.uiVmwareRadioButton.isChecked():
-                    self.uiVMListComboBox.addItem(vm["vmname"], vm["vmx_path"])
-                else:
-                    self.uiVMListComboBox.addItem(vm["vmname"], "")
+                self.uiVMListComboBox.addItem(vm["vmname"], vm.get("vmx_path", ""))
             gns3_vm = Servers.instance().vmSettings()
             index = self.uiVMListComboBox.findText(gns3_vm["vmname"])
             if index != -1:
@@ -429,9 +426,6 @@ class ServerPreferencesPage(QtWidgets.QWidget, Ui_ServerPreferencesPageWidget):
         local_server_settings = servers_settings["local_server"]
         restart_local_server = False
         restart_gns3_vm = False
-
-
-
 
         # save the local server preferences
         new_local_server_settings = local_server_settings.copy()
