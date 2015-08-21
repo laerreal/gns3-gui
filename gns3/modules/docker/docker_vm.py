@@ -52,6 +52,7 @@ class DockerVM(VM):
             "console": DOCKER_CONTAINER_SETTINGS["console"],
             "adapters": DOCKER_CONTAINER_SETTINGS["adapters"],
             "adapter_type": DOCKER_CONTAINER_SETTINGS["adapter_type"],
+            "startcmd": DOCKER_CONTAINER_SETTINGS["startcmd"]
         }
 
     def _addAdapters(self, adapters):
@@ -226,7 +227,7 @@ class DockerVM(VM):
 
     def update(self, new_settings):
         """
-        Updates the settings for this cloud.
+        Updates the settings for this container.
 
         :param new_settings: settings dictionary
         """

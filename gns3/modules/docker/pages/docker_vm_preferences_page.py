@@ -72,8 +72,8 @@ class DockerVMPreferencesPage(
         QtWidgets.QTreeWidgetItem(
             section_item, ["Image name:", docker_image["imagename"]])
         # FIXME: add more configuration options
-        # QtWidgets.QTreeWidgetItem(
-        #     section_item, ["RAM:", str(docker_image["ram"])])
+        QtWidgets.QTreeWidgetItem(
+            section_item, ["CMD:", str(docker_image["startcmd"])])
         # QtWidgets.QTreeWidgetItem(
         #     section_item, ["Server:", docker_image["server"]])
 

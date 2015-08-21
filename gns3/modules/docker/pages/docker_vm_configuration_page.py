@@ -52,9 +52,16 @@ class DockerVMConfigurationPage(
             else:
                 self.uiNameLabel.hide()
                 self.uiNameLineEdit.hide()
+            if "startcmd" in settings:
+                self.uiCMDLineEdit.setText(settings["startcmd"])
+            else:
+                self.uiCMDLabel.hide()
+                self.uiCMDLineEdit.hide()
         else:
             self.uiNameLabel.hide()
             self.uiNameLineEdit.hide()
+            self.uiCMDLabel.hide()
+            self.uiCMDLineEdit.hide()
             self.uiImageListLabel.hide()
             self.uiImageListComboBox.hide()
 
@@ -65,15 +72,16 @@ class DockerVMConfigurationPage(
         :param node: Node instance
         :param group: indicates the settings apply to a group of VMs
         """
-        # these settings cannot be shared by nodes and updated
-        # in the node configurator.
         if not group:
+            if "startcmd" in settings:
+                startcmd = self.uiCMDLineEdit.text()
+                settings["startcmd"] = startcmd
             if "name" in settings:
                 name = self.uiNameLineEdit.text()
                 if not name:
-                    QtWidgets.QMessageBox.critical(
-                        self, "Name", "Docker name cannot be empty!")
+                    QtWidgets.QMessageBox.critical(self, "Name", "VMware name cannot be empty!")
                 else:
                     settings["name"] = name
         else:
+            del settings["startcmd"]
             del settings["name"]

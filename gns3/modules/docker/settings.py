@@ -27,7 +27,6 @@ DOCKER_SETTINGS = {
     "use_local_server": True
 }
 
-# FIXME: symbols
 DOCKER_CONTAINER_SETTINGS = {
     "symbol": ":/symbols/vbox_guest.svg",
     "category": Node.end_devices,
@@ -35,4 +34,5 @@ DOCKER_CONTAINER_SETTINGS = {
     "adapter_type": "veth",
     "console": "gnome-terminal",
     "enable_remote_console": False,
+    "startcmd": ""
 }

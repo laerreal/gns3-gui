@@ -68,7 +68,7 @@ class Docker(Module):
                     continue
                 container_settings = DOCKER_CONTAINER_SETTINGS.copy()
                 container_settings.update(image)
-                self._docker_image[key] = container_settings
+                self._docker_images[key] = container_settings
 
     def _saveDockerImages(self):
         """Saves the Docker images to the persistent settings file."""
@@ -176,7 +176,6 @@ class Docker(Module):
         for setting_name, value in self._docker_images[image].items():
             if setting_name in node.settings() and value != "" and value is not None:
                 image_settings[setting_name] = value
-
         imagename = self._docker_images[image]["imagename"]
         node.setup(imagename, additional_settings=image_settings)
 
