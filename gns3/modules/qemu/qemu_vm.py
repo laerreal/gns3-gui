@@ -78,6 +78,7 @@ class QemuVM(VM):
             new_port.setAdapterNumber(adapter_number)
             new_port.setPortNumber(0)
             new_port.setHotPluggable(False)
+            new_port.setPacketCaptureSupported(True)
             self._ports.append(new_port)
             log.debug("Adapter {} has been added".format(adapter_name))
 
@@ -541,6 +542,76 @@ class QemuVM(VM):
         """
 
         return [Node.end_devices]
+
+
+    def startPacketCapture(self, port, capture_file_name, data_link_type):
+        """
+        Starts a packet capture.
+
+        :param port: Port instance
+        :param capture_file_name: PCAP capture file path
+        :param data_link_type: PCAP data link type (unused)
+        """
+
+        params = {"capture_file_name": capture_file_name}
+        log.debug("{} is starting a packet capture on {}: {}".format(self.name(), port.name(), params))
+        self.httpPost("/qemu/vms/{vm_id}/adapters/{adapter_number}/ports/0/start_capture".format(
+            vm_id=self._vm_id,
+            adapter_number=port.adapterNumber()),
+            self._startPacketCaptureCallback,
+            context={"port": port},
+            body=params)
+
+    def _startPacketCaptureCallback(self, result, error=False, context={}, **kwargs):
+        """
+        Callback for starting a packet capture.
+
+        :param result: server response
+        :param error: indicates an error (boolean)
+        """
+
+        if error:
+            log.error("error while starting capture {}: {}".format(self.name(), result["message"]))
+            self.server_error_signal.emit(self.id(), result["message"])
+        else:
+            port = context["port"]
+            log.info("{} has successfully started capturing packets on {}".format(self.name(), port.name()))
+            try:
+                port.startPacketCapture(result["pcap_file_path"])
+            except OSError as e:
+                self.error_signal.emit(self.id(), "could not start the packet capture reader: {}: {}".format(e, e.filename))
+            self.updated_signal.emit()
+
+    def stopPacketCapture(self, port):
+        """
+        Stops a packet capture.
+
+        :param port: Port instance
+        """
+
+        log.info("{} is stopping a packet capture on {}".format(self.name(), port.name()))
+        self.httpPost("/qemu/vms/{vm_id}/adapters/{adapter_number}/ports/0/stop_capture".format(
+            vm_id=self._vm_id,
+            adapter_number=port.adapterNumber()),
+            self._stopPacketCaptureCallback,
+            context={"port": port})
+
+    def _stopPacketCaptureCallback(self, result, error=False, context={}, **kwargs):
+        """
+        Callback for stopping a packet capture.
+
+        :param result: server response
+        :param error: indicates an error (boolean)
+        """
+
+        if error:
+            log.error("error while stopping capture {}: {}".format(self.name(), result["message"]))
+            self.server_error_signal.emit(self.id(), result["message"])
+        else:
+            port = context["port"]
+            log.info("{} has successfully stopped capturing packets on {}".format(self.name(), port.name()))
+            port.stopPacketCapture()
+            self.updated_signal.emit()
 
     def __str__(self):
 
