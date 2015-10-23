@@ -21,6 +21,7 @@ Default general settings.
 
 import os
 import sys
+import uuid
 import platform
 
 # Default projects directory location
@@ -45,11 +46,12 @@ if sys.platform.startswith("win"):
 
     PRECONFIGURED_TELNET_CONSOLE_COMMANDS = {'Putty (included with GNS3)': 'putty.exe -telnet %h %p -wt "%d" -gns3 5 -skin 4',
                                              'SuperPutty (included with GNS3)': r'SuperPutty.exe -telnet "%h -P %p -wt \"%d\""',
-                                             'SecureCRT': r'"{}\VanDyke Software\SecureCRT\SecureCRT.exe" /SCRIPT securecrt.vbs /ARG "%d" /T /TELNET %h %p'.format(program_files),
+                                             'SecureCRT': r'"{}\VanDyke Software\SecureCRT\SecureCRT.exe" /N "%d" /T /TELNET %h %p'.format(program_files),
                                              'SecureCRT (personal profile)': r'"{}\Local\VanDyke Software\SecureCRT\SecureCRT.exe" /T /N "%d" /TELNET %h %p'.format(userprofile),
                                              'TeraTerm Pro': r'"{}\teraterm\ttermpro.exe" /W="%d" /M="ttstart.macro" /T=1 %h %p'.format(program_files_x86),
                                              'Telnet': 'telnet %h %p',
                                              'Xshell 4': r'"{}\NetSarang\Xshell 4\xshell.exe" -url telnet://%h:%p'.format(program_files_x86),
+                                             'Xshell 5': r'"{}\NetSarang\Xshell 5\xshell.exe" -url telnet://%h:%p -newtab %d'.format(program_files_x86),
                                              'ZOC 6': r'"{}\ZOC6\zoc.exe" "/TELNET:%h:%p" /TABBED "/TITLE:%d"'.format(program_files_x86)}
 
     # default on Windows
@@ -84,7 +86,7 @@ elif sys.platform.startswith("darwin"):
                  " -e '  end tell'"
                  " -e 'end tell'"
                  " -e 'end tell'",
-        'SecureCRT': '/Applications/SecureCRT.app/Contents/MacOS/SecureCRT /ARG "%d" /T /TELNET %h %p',
+        'SecureCRT': '/Applications/SecureCRT.app/Contents/MacOS/SecureCRT /N "%d" /T /TELNET %h %p',
         'ZOC 6': '/Applications/zoc6.app/Contents/MacOS/zoc6 "/TELNET:%h:%p" /TABBED "/TITLE:%d"'
     }
 
@@ -182,6 +184,8 @@ GENERAL_SETTINGS = {
     "auto_launch_project_dialog": True,
     "auto_screenshot": True,
     "check_for_update": True,
+    "send_stats": True,
+    "stats_visitor_id": str(uuid.uuid4()), # An anonymous id for stats
     "last_check_for_update": 0,
     "slow_device_start_all": 0,
     "link_manual_mode": True,
@@ -200,6 +204,8 @@ GENERAL_SETTING_TYPES = {
     "auto_launch_project_dialog": bool,
     "auto_screenshot": bool,
     "check_for_update": bool,
+    "send_stats": bool,
+    "stats_visitor_id": str,
     "last_check_for_update": int,
     "slow_device_start_all": int,
     "link_manual_mode": bool,

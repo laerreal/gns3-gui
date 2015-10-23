@@ -1166,11 +1166,6 @@ class GraphicsView(QtGui.QGraphicsView):
         item = items[0]
         if isinstance(item, NodeItem) and hasattr(item.node(), "idlepc") and item.node().initialized():
             router = item.node()
-            # question = QtGui.QMessageBox.question(self, "Auto Idle-PC", "Would you like to automatically find a suitable Idle-PC value (but not optimal)?", QtGui.QMessageBox.Yes, QtGui.QMessageBox.No)
-
-            # if question == QtGui.QMessageBox.Yes:
-            #    router.computeAutoIdlepc(self._autoIdlepcCallback)
-            # else:
             router.computeIdlepcs(self._idlepcCallback)
 
     def _idlepcCallback(self, result, error=False, context={}, **kwargs):
@@ -1287,8 +1282,8 @@ class GraphicsView(QtGui.QGraphicsView):
         for item in self.scene().selectedItems():
             if item.parentItem() is None:
                 if horizontal_pos is None:
-                    horizontal_pos = item.y()
-                item.setPos(item.x(), horizontal_pos)
+                    horizontal_pos = item.y() + item.boundingRect().height() / 2
+                item.setPos(item.x(), horizontal_pos - item.boundingRect().height() / 2)
 
     def verticalAlignmentSlot(self):
         """
@@ -1300,8 +1295,8 @@ class GraphicsView(QtGui.QGraphicsView):
         for item in self.scene().selectedItems():
             if item.parentItem() is None:
                 if vertical_position is None:
-                    vertical_position = item.x()
-                item.setPos(vertical_position, item.y())
+                    vertical_position = item.x() + item.boundingRect().width() / 2
+                item.setPos(vertical_position - item.boundingRect().width() / 2, item.y())
 
     def raiseLayerActionSlot(self):
         """
