@@ -63,8 +63,8 @@ class QemuVMWizard(QtGui.QWizard, Ui_QemuVMWizard):
 
         # Mandatory fields
         self.uiNameWizardPage.registerField("vm_name*", self.uiNameLineEdit)
-        self.uiDiskWizardPage.registerField("hda_disk_image*", self.uiHdaDiskImageLineEdit)
-        self.uiDiskImageHdbWizardPage.registerField("hdb_disk_image*", self.uiHdbDiskImageLineEdit)
+        self.uiDiskWizardPage.registerField("hda_disk_image", self.uiHdaDiskImageLineEdit)
+        self.uiDiskImageHdbWizardPage.registerField("hdb_disk_image", self.uiHdbDiskImageLineEdit)
         self.uiASAWizardPage.registerField("initrd*", self.uiInitrdLineEdit)
         self.uiASAWizardPage.registerField("kernel_image*", self.uiKernelImageLineEdit)
 
